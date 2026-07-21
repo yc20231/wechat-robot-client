@@ -14,6 +14,7 @@ var privateEnvKeys = map[string]struct{}{
 	"RABBITMQ_PASSWORD":      {},
 	"THIRD_PARTY_API_KEY":    {},
 	"SLIDER_ACCESS_KEY":      {},
+	"BUSINESS_GATEWAY_TOKEN": {},
 }
 
 func GetPublicEnvVars() []string {

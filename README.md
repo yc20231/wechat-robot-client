@@ -18,6 +18,13 @@
 
 [https://wechat-doc.houhoukang.com/](https://wechat-doc.houhoukang.com/)
 
+## 本项目业务机器人文档
+
+- [飞牛 OS 部署：hp0912 + BusinessRouterPlugin](docs/wechat-bot-fnos-deploy.md)
+- [业务网关设计与 ThinkPHP 接口契约](docs/wechat-bot-mcp-config.md)
+- [`Dockerfile.fnos-runtime`](Dockerfile.fnos-runtime)：飞牛无法拉取 Docker Hub 构建镜像时，用于封装本地编译的客户端二进制
+- [`business-gateway`](business-gateway/)：库存业务前置路由、群绑定、权限和去重服务
+
 ## 官方交流群
 
 <table>

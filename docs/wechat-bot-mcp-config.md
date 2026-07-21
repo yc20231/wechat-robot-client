@@ -1,0 +1,329 @@
+# 业务网关设计与 ThinkPHP 接口契约
+
+本文档描述当前确定的业务方案：
+
+```text
+hp0912/wechat-robot-client
+    -> BusinessRouterPlugin
+       ├─ 业务消息 -> business-gateway -> ThinkPHP
+       └─ 非业务消息 -> hp0912 内置 AI
+    -> Webhook（审计/同步）
+```
+
+MCP 不再是库存、订单等实时业务的主入口。hp0912 内置 AI 负责非业务消息；业务消息必须先经过前置路由和权限校验。
+
+## 0. 实现状态
+
+截至 2026-07-21：
+
+- hp0912 平台、微信登录、内置 AI 已部署并验证。
+- 自定义客户端 AI 文本尾注已部署并验证。
+- `BusinessRouterPlugin` 和 `business-gateway` 的代码、配置示例和自动化测试已完成，待飞牛部署联调。
+- ThinkPHP `/api/bot/health`、`/api/bot/inventory` 和独立 Bot Token 鉴权已经存在，待网关实际连通验证。
+- 旧 `wangzhan/bot-mcp` 已停用但暂不删除，只保留作迁移参考。
+
+业务链路完成前不得接入真实客户群。
+
+## 1. 业务规则
+
+### 客户群
+
+每个客户群固定绑定一个 `customer_code`：
+
+```text
+群 A -> 270
+群 B -> 300
+```
+
+群 A 只能查询 270 的数据，不能通过消息中的数字、AI 参数或提示词查询 300。
+
+### 管理员群
+
+管理员群拥有全部业务模块和测试模块，但必须同时满足：
+
+```text
+群类型 = admin
+发送者 wxid 在 ADMIN_WXIDS 白名单
+```
+
+只满足其中一个条件也不能跨客户查询。
+
+管理员群不绑定某个 `customer_code`，也不通过聊天命令修改管理员群身份。群绑定由网站后台或受保护的管理 API 完成。
+
+### AI
+
+处理顺序固定为：
+
+```text
+BusinessRouterPlugin
+  -> 业务消息：business-gateway -> 权限校验 -> 业务模块 -> 直接回复
+  -> 非业务消息：hp0912 内置 AI
+```
+
+AI 不得回答实时库存、订单、余额、排期和客户数据。后端请求失败时也不能让 AI 猜测结果。
+
+AI 不是第一期放弃的功能。第一期继续使用 hp0912 内置 AI，负责非业务闲聊、知识库和记忆。客户群和管理员群仍然可以启用 AI，但业务消息必须由前置路由拦截，不能先进入 AI。
+
+### AI 配置位置
+
+AI 配置仍然在 hp0912 管理后台维护：API 地址、API Key、模型、系统提示词、知识库和记忆。系统提示词必须明确禁止猜测实时库存、订单、余额和排期数据；业务安全不能只依赖提示词，必须依赖前置路由。
+
+## 2. 群绑定数据模型
+
+早期可以使用 JSON 文件，正式环境建议迁移到 ThinkPHP 后台和数据库。
+
+目标结构：
+
+```go
+type GroupType string
+
+const (
+    GroupTypeCustomer GroupType = "customer"
+    GroupTypeAdmin    GroupType = "admin"
+)
+
+type GroupBinding struct {
+    GroupID      string    `json:"group_id"`
+    GroupName    string    `json:"group_name"`
+    Type         GroupType `json:"type"`
+    CustomerCode string    `json:"customer_code,omitempty"`
+    Enabled      bool      `json:"enabled"`
+}
+```
+
+管理员群示例：
+
+```json
+{
+  "group_id": "admin-group@chatroom",
+  "group_name": "机器人管理员群",
+  "type": "admin",
+  "enabled": true
+}
+```
+
+客户群示例：
+
+```json
+{
+  "group_id": "customer-270@chatroom",
+  "group_name": "270客户群",
+  "type": "customer",
+  "customer_code": "270",
+  "enabled": true
+}
+```
+
+## 3. BusinessRouterPlugin 输入
+
+`jiqiren` 客户端中的 `BusinessRouterPlugin` 在 hp0912 内置 AI 之前运行，同步调用：
+
+```text
+POST http://business-gateway:8080/internal/business/route
+```
+
+请求字段：
+
+```text
+robot_wxid
+robot_code
+group_id
+sender_wxid
+message_id
+content
+is_at_me
+```
+
+请求使用 `X-Internal-Route-Token`，其值必须与客户端 `BUSINESS_GATEWAY_TOKEN` 一致。
+
+响应状态：
+
+```text
+handled=true      已处理，客户端发送 reply 并阻止 AI
+handled=false     非业务消息，继续内置 AI
+handled=true + error 业务失败，发送固定错误并阻止 AI
+```
+
+业务错误不能返回 `handled=false`，否则会让 AI 接管实时业务问题。
+
+## 4. hp0912 Webhook 输入
+
+hp0912 Webhook 发送同步消息批次。网关关注 `AddMsgs`：
+
+```text
+Appid
+Wxid                 机器人 wxid
+AddMsgs[].FromUserName
+AddMsgs[].ToUserName
+AddMsgs[].Content
+AddMsgs[].MsgType
+AddMsgs[].NewMsgId
+```
+
+不同消息类型和 XML 内容见 hp0912 的 [`message_callback.md`](https://github.com/hp0912/wechat-robot-client/blob/main/message_callback.md)。
+
+消息去重键：
+
+```text
+dedup_key = Appid + ":" + NewMsgId
+```
+
+网关必须过滤机器人自己发出的消息，并按配置判断是否必须 @机器人后才处理。
+
+## 5. 业务模块权限
+
+模块注册应使用稳定/实验两种状态：
+
+```text
+stable       客户群和管理员群都可见
+experimental 仅管理员群 + 管理员 wxid 可用
+```
+
+权限类型：
+
+```text
+customer
+admin
+```
+
+有效权限计算：
+
+```text
+客户群       -> customer
+管理员群     -> admin，但仍需管理员 wxid 白名单
+```
+
+一期模块：
+
+```text
+help       stable
+inventory  stable
+status     experimental
+```
+
+后续模块：
+
+```text
+order
+balance
+production_schedule
+shipment
+statement
+```
+
+## 6. ThinkPHP 接口契约
+
+所有机器人接口使用独立 token，不复用员工或客户 JWT：
+
+```http
+X-Bot-Token: <BOT_API_TOKEN>
+User-Agent: bot-mcp/business-gateway-1.0
+```
+
+`bot-mcp/` 前缀用于兼容现有 ThinkPHP `BotTokenMiddleware` 的调用来源校验；服务本身仍是新的前置业务网关，不会恢复旧 MCP 路径。
+
+### 健康检查
+
+```text
+GET /api/bot/health
+```
+
+### 查询库存
+
+```text
+GET /api/bot/inventory
+```
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `customer_code` | 是 | 已经经过网关身份校验的客户代号 |
+| `keyword` | 否 | 货号、品名、规格、颜色、花纹模糊匹配 |
+| `product_code` | 否 | 货号模糊匹配，与 `keyword` 叠加 |
+| `limit` | 否 | 默认 20，硬上限 50 |
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "customer_code": "270",
+    "customer_name": "示例客户",
+    "summary": {
+      "count": 1,
+      "total_carton_qty": 2,
+      "total_weight_jin": 30
+    },
+    "items": []
+  }
+}
+```
+
+后端仍然必须再次按 `customer_code` 隔离查询，不能完全信任网关传入值。
+
+## 7. 新增业务模块的位置
+
+以订单为例：
+
+```text
+backend/app/controller/BotOrderController.php
+backend/app/service/BotOrderService.php
+backend/route/app.php
+
+business-gateway/internal/backend/order.go
+business-gateway/internal/modules/order/
+business-gateway/internal/modules/registry.go
+```
+
+正常情况下不需要修改：
+
+```text
+internal/adapter/
+internal/identity/
+internal/dedup/
+```
+
+## 8. 管理接口
+
+高风险绑定操作优先放在网站后台。早期临时管理接口必须使用独立的 `ADMIN_TOKEN`：
+
+```text
+GET    /admin/groups
+POST   /admin/groups
+PUT    /admin/groups/{group_id}
+DELETE /admin/groups/{group_id}
+```
+
+不建议保留“在管理员群里绑定当前群”的命令，因为它容易误改管理员群身份。
+
+## 9. 测试要求
+
+自动化测试已覆盖：
+
+- [x] 270 客户群不能查询 300
+- [x] 管理员群普通成员不能跨客户查询
+- [x] 管理员群白名单成员可以跨客户查询
+- [x] 实验模块对客户群拒绝，对管理员开放
+- [x] 重复内部业务消息只查询和回复一次
+- [x] Webhook 按 `Appid + NewMsgId` 去重
+- [x] 未 @机器人时不处理群业务消息
+- [x] 后端失败时不进入 AI 编造业务答案
+- [x] 业务消息先被前置路由处理，不能先触发 hp0912 AI
+- [x] 非业务消息继续进入 hp0912 内置 AI
+- [x] AI 文本回复带有“本消息由AI生成回复”尾注
+- [x] 机器人自己发送的消息不会再次触发业务
+
+## 10. 与客户端镜像的关系
+
+`BusinessRouterPlugin` 和 AI 尾注都属于自定义客户端代码。管理后台当前把客户端镜像固定为：
+
+```text
+registry.cn-shenzhen.aliyuncs.com/houhou/wechat-robot-client:latest
+```
+
+飞牛部署通过本地标签把经过验证的自定义镜像映射为 `latest`，并额外保留官方回滚标签。禁止直接点击管理后台“更新镜像”，否则自定义业务路由和 AI 尾注都会被官方镜像覆盖。
+
+完整构建、切换和回滚步骤见 `docs/wechat-bot-fnos-deploy.md`。

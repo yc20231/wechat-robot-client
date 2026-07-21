@@ -1,0 +1,5 @@
+{
+  "url": "http://business-gateway:8080",
+  "token": "replace-with-internal-route-token",
+  "timeout_sec": 5
+}

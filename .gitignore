@@ -5,8 +5,16 @@ dev-wechat-ipad.yml
 wechat-robot-client
 pkg/good_morning/test_output
 docs
+!docs/
+!docs/wechat-bot-fnos-deploy.md
+!docs/wechat-bot-mcp-config.md
 __debug*
 .gocache/
+.tools/
+.runtime-build/
+wechat-robot-client-custom
+Dockerfile.fnos
+.deploy/local/.deployment-credentials.txt
 
 # local self-signed certs (do not commit)
 .deploy/local/secrets/nginx/*.key

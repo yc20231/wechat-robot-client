@@ -8,6 +8,8 @@ import (
 
 func RegisterMessagePlugin() {
 	vars.MessagePlugin = plugin.NewMessagePlugin()
+	// 业务消息必须在内置 AI 前完成权限校验和确定性回复。
+	vars.MessagePlugin.Register(plugins.NewBusinessRouterPlugin())
 	// 群聊聊天插件
 	vars.MessagePlugin.Register(plugins.NewChatRoomAIChatPlugin())
 	vars.MessagePlugin.Register(plugins.NewChatRoomMemberBlacklistPlugin())

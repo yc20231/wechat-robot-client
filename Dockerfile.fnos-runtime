@@ -1,0 +1,15 @@
+FROM registry.cn-shenzhen.aliyuncs.com/houhou/silk-base:latest
+
+ENV GIN_MODE=release \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+COPY --chmod=0755 wechat-robot-client-custom ./wechat-robot-client
+
+RUN test -x /app/wechat-robot-client
+
+EXPOSE 9000
+
+ENTRYPOINT []
+CMD ["/app/wechat-robot-client"]

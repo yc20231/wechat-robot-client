@@ -48,6 +48,8 @@ type MessageContext struct {
 	Pat            bool
 	ReferMessage   *model.Message
 	MessageService MessageServiceIface
+	// Handled stops later plugins from processing the same message.
+	Handled bool
 }
 
 type MessageHandler interface {

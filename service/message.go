@@ -101,6 +101,9 @@ func (s *MessageService) ProcessTextMessage(message *model.Message, msgSettings 
 		}
 		s.logPluginMatch(messagePlugin, msgCtx)
 		messagePlugin.Run(msgCtx)
+		if msgCtx.Handled {
+			break
+		}
 	}
 }
 
@@ -123,6 +126,9 @@ func (s *MessageService) ProcessImageMessage(message *model.Message, msgSettings
 		}
 		s.logPluginMatch(messagePlugin, msgCtx)
 		messagePlugin.Run(msgCtx)
+		if msgCtx.Handled {
+			break
+		}
 	}
 }
 
@@ -181,6 +187,9 @@ func (s *MessageService) ProcessReferMessage(message *model.Message, msgSettings
 		}
 		s.logPluginMatch(messagePlugin, msgCtx)
 		messagePlugin.Run(msgCtx)
+		if msgCtx.Handled {
+			break
+		}
 	}
 }
 
@@ -202,6 +211,9 @@ func (s *MessageService) ProcessRedEnvelopesMessage(message *model.Message, msgS
 		}
 		s.logPluginMatch(messagePlugin, msgCtx)
 		messagePlugin.Run(msgCtx)
+		if msgCtx.Handled {
+			break
+		}
 	}
 }
 
@@ -352,6 +364,9 @@ func (s *MessageService) ProcessPatMessage(message *model.Message, msgXml robot.
 			}
 			s.logPluginMatch(messagePlugin, msgCtx)
 			messagePlugin.Run(msgCtx)
+			if msgCtx.Handled {
+				break
+			}
 		}
 	}
 }

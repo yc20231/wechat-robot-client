@@ -1,0 +1,17 @@
+{
+  "groups": [
+    {
+      "group_id": "customer-270@chatroom",
+      "group_name": "270客户群",
+      "type": "customer",
+      "customer_code": "270",
+      "enabled": true
+    },
+    {
+      "group_id": "admin-group@chatroom",
+      "group_name": "机器人管理员群",
+      "type": "admin",
+      "enabled": true
+    }
+  ]
+}

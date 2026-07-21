@@ -1,0 +1,20 @@
+services:
+  business-gateway:
+    build: .
+    image: jiqiren/business-gateway:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - business-gateway-data:/data
+    ports:
+      - "127.0.0.1:18080:8080"
+    networks:
+      - wechat-robot
+
+networks:
+  wechat-robot:
+    external: true
+
+volumes:
+  business-gateway-data:
