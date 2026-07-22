@@ -227,6 +227,39 @@ func TestRoutingSafetyRules(t *testing.T) {
 	}
 }
 
+func TestMenuAndHelpAreRoleAwareAndAvailableInUnboundGroups(t *testing.T) {
+	service := newTestService(&fakeBackend{})
+
+	ordinaryMenu := service.Route(context.Background(), baseRequest("unbound@chatroom", "member", "@机器人 菜单", 150))
+	if !ordinaryMenu.Handled || ordinaryMenu.Error != "" || !strings.Contains(ordinaryMenu.Reply, "身份：普通成员") || !strings.Contains(ordinaryMenu.Reply, "当前群：未绑定") {
+		t.Fatalf("ordinary menu = %+v", ordinaryMenu)
+	}
+	if strings.Contains(ordinaryMenu.Reply, "\n全局管理\n") || strings.Contains(ordinaryMenu.Reply, "管理员群管理（仅固定所有者）") {
+		t.Fatalf("ordinary menu exposed management commands: %q", ordinaryMenu.Reply)
+	}
+
+	customerHelp := service.Route(context.Background(), baseRequest("customer@chatroom", "member", "帮助", 151))
+	if customerHelp.Error != "" || !strings.Contains(customerHelp.Reply, "客户群库存") || !strings.Contains(customerHelp.Reply, "只能查询当前群绑定客户") {
+		t.Fatalf("customer help = %+v", customerHelp)
+	}
+
+	adminMenu := service.Route(context.Background(), baseRequest("admin@chatroom", "admin-wxid", "菜单", 152))
+	if adminMenu.Error != "" || !strings.Contains(adminMenu.Reply, "管理员群业务") || strings.Contains(adminMenu.Reply, "\n全局管理\n") {
+		t.Fatalf("admin menu = %+v", adminMenu)
+	}
+
+	rootHelp := service.Route(context.Background(), baseRequest("unbound@chatroom", "root-wxid", "帮助", 153))
+	if rootHelp.Error != "" || !strings.Contains(rootHelp.Reply, "管理员管理（全局）") || !strings.Contains(rootHelp.Reply, "客户群管理") || strings.Contains(rootHelp.Reply, "管理员群管理（仅固定所有者）") {
+		t.Fatalf("root help = %+v", rootHelp)
+	}
+
+	ownerHelp := service.Route(context.Background(), baseRequest("unbound@chatroom", "owner-wxid", "帮助", 154))
+	legacyHelp := service.Route(context.Background(), baseRequest("unbound@chatroom", "owner-wxid", "业务帮助", 155))
+	if ownerHelp.Error != "" || !strings.Contains(ownerHelp.Reply, "客户群库存（仅已绑定客户群）") || !strings.Contains(ownerHelp.Reply, "管理员群库存（仅管理员群）") || !strings.Contains(ownerHelp.Reply, "管理员群管理（仅固定所有者）") || legacyHelp.Reply != ownerHelp.Reply {
+		t.Fatalf("owner help=%+v legacy help=%+v", ownerHelp, legacyHelp)
+	}
+}
+
 func TestDuplicateBusinessMessageStopsWithoutSecondReply(t *testing.T) {
 	api := &fakeBackend{inventory: backend.Inventory{CustomerCode: "270"}}
 	service := newTestService(api)

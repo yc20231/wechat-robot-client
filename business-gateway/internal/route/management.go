@@ -17,6 +17,8 @@ type managementKind string
 
 const (
 	manageInvalid                 managementKind = "invalid"
+	manageMenu                    managementKind = "menu"
+	manageHelp                    managementKind = "help"
 	manageListAdmins              managementKind = "list_admins"
 	manageAddRoot                 managementKind = "add_root"
 	manageConfirmAddRoot          managementKind = "confirm_add_root"
@@ -49,6 +51,10 @@ type managementCommand struct {
 func parseManagementCommand(content string) (managementCommand, bool) {
 	content = strings.TrimSpace(strings.Trim(content, "，。！？!?"))
 	switch content {
+	case "菜单":
+		return managementCommand{Kind: manageMenu}, true
+	case "帮助", "业务帮助", "#业务帮助":
+		return managementCommand{Kind: manageHelp}, true
 	case "管理员列表":
 		return managementCommand{Kind: manageListAdmins}, true
 	case "查看群绑定":
@@ -129,6 +135,10 @@ func (s *Service) handleManagement(ctx context.Context, req Request, command man
 	switch command.Kind {
 	case manageInvalid:
 		return businessError("管理指令格式不正确，请检查指令和 @ 目标")
+	case manageMenu:
+		return s.showMenu(req)
+	case manageHelp:
+		return s.showHelp(req)
 	case manageListAdmins:
 		return s.listAdmins(req)
 	case manageViewGroup:
@@ -156,6 +166,138 @@ func (s *Service) handleManagement(ctx context.Context, req Request, command man
 	default:
 		return Response{Handled: false}
 	}
+}
+
+func (s *Service) showMenu(req Request) Response {
+	role, _ := s.admins.RoleOf(req.SenderWxID)
+	binding, bound := s.groups.Get(req.GroupID)
+	lines := []string{
+		"机器人功能菜单",
+		"身份：" + roleName(role),
+		"当前群：" + bindingName(binding, bound),
+		"",
+		"通用功能",
+		"· @机器人 <问题>：AI 对话",
+		"· @机器人 帮助：查看详细用法",
+		"· @机器人 查看群绑定：查看当前群身份",
+	}
+	if bound && binding.Enabled && binding.Type == group.TypeCustomer {
+		lines = append(lines, "", "客户群业务", "· @机器人 查库存 [关键词]")
+	}
+	if bound && binding.Enabled && binding.Type == group.TypeAdmin && s.admins.IsAdmin(req.SenderWxID) {
+		lines = append(lines, "", "管理员群业务", "· @机器人 查库存 <客户代号> [关键词]", "· @机器人 业务状态")
+	}
+	if s.admins.IsRoot(req.SenderWxID) {
+		lines = append(lines,
+			"",
+			"全局管理",
+			"· @机器人 管理员列表",
+			"· 添加/移除 @成员 管理员或根管理员",
+			"· 绑定/改绑/解绑客户 <客户代号>",
+		)
+	}
+	if s.admins.IsOwner(req.SenderWxID) {
+		lines = append(lines, "· 绑定/改绑/解绑管理员群")
+	}
+	return Response{Handled: true, Reply: strings.Join(lines, "\n")}
+}
+
+func (s *Service) showHelp(req Request) Response {
+	role, _ := s.admins.RoleOf(req.SenderWxID)
+	binding, bound := s.groups.Get(req.GroupID)
+	lines := []string{
+		"机器人使用帮助",
+		"身份：" + roleName(role),
+		"当前群：" + bindingName(binding, bound),
+		"",
+		"AI 对话",
+		"· @机器人 <问题>",
+		"  非业务问题由内置 AI 回答。",
+		"",
+		"基础查询",
+		"· @机器人 菜单",
+		"· @机器人 查看群绑定",
+	}
+	lines = append(lines,
+		"",
+		"客户群库存（仅已绑定客户群）",
+		"· @机器人 查库存",
+		"· @机器人 查库存 红",
+		"  只能查询当前群绑定客户。",
+	)
+	if s.admins.IsAdmin(req.SenderWxID) {
+		lines = append(lines,
+			"",
+			"管理员群库存（仅管理员群）",
+			"· @机器人 查库存 270 [关键词]",
+			"· @机器人 查 270 库存 [关键词]",
+			"· @机器人 业务状态",
+		)
+	}
+	if s.admins.IsRoot(req.SenderWxID) {
+		lines = append(lines,
+			"",
+			"管理员管理（全局）",
+			"· @机器人 管理员列表",
+			"· @机器人 添加 @W 管理员",
+			"· @机器人 添加 @W 根管理员",
+			"· @机器人 移除 @W 管理员",
+			"· @机器人 确认移除 @W 管理员",
+			"· @机器人 移除 @W 根管理员",
+			"· @机器人 确认移除 @W 根管理员",
+			"",
+			"客户群管理",
+			"· @机器人 绑定客户 270",
+			"· @机器人 改绑客户 365",
+			"· @机器人 确认改绑 365",
+			"· @机器人 解绑客户",
+			"· @机器人 确认解绑客户 365",
+		)
+	}
+	if s.admins.IsOwner(req.SenderWxID) {
+		lines = append(lines,
+			"",
+			"管理员群管理（仅固定所有者）",
+			"· @机器人 绑定管理员群",
+			"· @机器人 改绑管理员群",
+			"· @机器人 确认改绑管理员群",
+			"· @机器人 解绑管理员群",
+			"· @机器人 确认解绑管理员群",
+		)
+	}
+	if s.admins.IsRoot(req.SenderWxID) {
+		lines = append(lines,
+			"",
+			"操作规则",
+			"· 添加管理员和首次绑定立即生效。",
+			"· 移除、降级、改绑和解绑需在 5 分钟内确认。",
+			"· 管理员目标必须从微信成员列表真实 @。",
+		)
+	}
+	return Response{Handled: true, Reply: strings.Join(lines, "\n")}
+}
+
+func roleName(role admin.Role) string {
+	switch role {
+	case admin.RoleOwner:
+		return "固定所有者"
+	case admin.RoleRoot:
+		return "动态根管理员"
+	case admin.RoleAdmin:
+		return "全局管理员"
+	default:
+		return "普通成员"
+	}
+}
+
+func bindingName(binding group.Binding, found bool) string {
+	if !found || !binding.Enabled {
+		return "未绑定"
+	}
+	if binding.Type == group.TypeAdmin {
+		return "管理员群"
+	}
+	return fmt.Sprintf("客户群（%s）", binding.CustomerCode)
 }
 
 func (s *Service) listAdmins(req Request) Response {
