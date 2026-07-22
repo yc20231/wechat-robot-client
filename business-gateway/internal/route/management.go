@@ -133,17 +133,25 @@ func (s *Service) handleManagement(ctx context.Context, req Request, command man
 		return s.listAdmins(req)
 	case manageViewGroup:
 		return s.viewGroupBinding(req)
-	case manageAddRoot, manageRemoveRoot, manageAddAdmin, manageRemoveAdmin:
+	case manageAddRoot, manageAddAdmin:
+		return s.addRole(req, command.Kind)
+	case manageRemoveRoot, manageRemoveAdmin:
 		return s.startRoleChange(req, command.Kind)
-	case manageConfirmAddRoot, manageConfirmRemoveRoot, manageConfirmAddAdmin, manageConfirmRemoveAdmin:
+	case manageConfirmAddRoot, manageConfirmAddAdmin:
+		return businessError("添加管理员无需二次确认，请直接发送添加指令")
+	case manageConfirmRemoveRoot, manageConfirmRemoveAdmin:
 		return s.confirmRoleChange(req, command.Kind)
 	case manageBindCustomer, manageRebindCustomer, manageUnbindCustomer:
 		return s.startCustomerBinding(ctx, req, command)
-	case manageConfirmBindCustomer, manageConfirmRebindCustomer, manageConfirmUnbindCustomer:
+	case manageConfirmBindCustomer:
+		return businessError("首次绑定客户群无需二次确认，请直接发送绑定客户指令")
+	case manageConfirmRebindCustomer, manageConfirmUnbindCustomer:
 		return s.confirmCustomerBinding(req, command)
 	case manageBindAdminGroup, manageRebindAdminGroup, manageUnbindAdminGroup:
 		return s.startAdminGroupBinding(req, command.Kind)
-	case manageConfirmBindAdminGroup, manageConfirmRebindAdminGroup, manageConfirmUnbindAdminGroup:
+	case manageConfirmBindAdminGroup:
+		return businessError("首次绑定管理员群无需二次确认，请直接发送绑定管理员群指令")
+	case manageConfirmRebindAdminGroup, manageConfirmUnbindAdminGroup:
 		return s.confirmAdminGroupBinding(req, command.Kind)
 	default:
 		return Response{Handled: false}
@@ -173,6 +181,48 @@ func (s *Service) listAdmins(req Request) Response {
 	return Response{Handled: true, Reply: strings.Join(lines, "\n")}
 }
 
+func (s *Service) addRole(req Request, kind managementKind) Response {
+	if s.admins == nil || !s.admins.IsRoot(req.SenderWxID) {
+		return businessError("当前账号没有管理员管理权限")
+	}
+	target, err := targetMention(req)
+	if err != nil {
+		return businessError(err.Error())
+	}
+
+	action := actionAddAdmin
+	roleToSet := admin.RoleAdmin
+	if kind == manageAddRoot {
+		action = actionAddRoot
+		roleToSet = admin.RoleRoot
+	}
+
+	s.managementMu.Lock()
+	defer s.managementMu.Unlock()
+	role, exists := s.admins.RoleOf(target)
+	if exists {
+		if role == admin.RoleOwner {
+			return businessError("固定所有者不可修改")
+		}
+		if kind == manageAddRoot && role == admin.RoleRoot {
+			return businessError("该成员已经是动态根管理员")
+		}
+		if kind == manageAddAdmin {
+			return businessError("该成员已经具有全局管理员权限")
+		}
+	}
+	if err := s.admins.SetRole(target, roleToSet); err != nil {
+		return businessError(err.Error())
+	}
+	if err := s.recordAudit(audit.Event{Action: string(action), ActorWxID: req.SenderWxID, TargetWxID: target, GroupID: req.GroupID, MessageID: req.MessageID}); err != nil {
+		return businessError("权限已更新，但审计记录失败，请联系维护人员")
+	}
+	if kind == manageAddRoot {
+		return Response{Handled: true, Reply: "已添加为全局动态根管理员", ReplyAtWxIDs: []string{target}}
+	}
+	return Response{Handled: true, Reply: "已添加为全局管理员", ReplyAtWxIDs: []string{target}}
+}
+
 func (s *Service) startRoleChange(req Request, kind managementKind) Response {
 	if s.admins == nil || !s.admins.IsRoot(req.SenderWxID) {
 		return businessError("当前账号没有管理员管理权限")
@@ -182,16 +232,9 @@ func (s *Service) startRoleChange(req Request, kind managementKind) Response {
 		return businessError(err.Error())
 	}
 	role, exists := s.admins.RoleOf(target)
-	action, instruction := actionAddAdmin, "确认添加 @成员 管理员"
+	var action operationAction
+	var instruction string
 	switch kind {
-	case manageAddRoot:
-		if exists && role == admin.RoleOwner {
-			return businessError("固定所有者不可修改")
-		}
-		if exists && role == admin.RoleRoot {
-			return businessError("该成员已经是动态根管理员")
-		}
-		action, instruction = actionAddRoot, "确认添加 @成员 根管理员"
 	case manageRemoveRoot:
 		if role == admin.RoleOwner {
 			return businessError("固定所有者不可移除或降级")
@@ -200,10 +243,6 @@ func (s *Service) startRoleChange(req Request, kind managementKind) Response {
 			return businessError("该成员不是动态根管理员")
 		}
 		action, instruction = actionRemoveRoot, "确认移除 @成员 根管理员"
-	case manageAddAdmin:
-		if exists {
-			return businessError("该成员已经具有全局管理员权限")
-		}
 	case manageRemoveAdmin:
 		if role == admin.RoleOwner {
 			return businessError("固定所有者不可移除或降级")
@@ -230,9 +269,12 @@ func (s *Service) confirmRoleChange(req Request, kind managementKind) Response {
 		return businessError(err.Error())
 	}
 	action := map[managementKind]operationAction{
-		manageConfirmAddRoot: actionAddRoot, manageConfirmRemoveRoot: actionRemoveRoot,
-		manageConfirmAddAdmin: actionAddAdmin, manageConfirmRemoveAdmin: actionRemoveAdmin,
+		manageConfirmRemoveRoot:  actionRemoveRoot,
+		manageConfirmRemoveAdmin: actionRemoveAdmin,
 	}[kind]
+	if action == "" {
+		return businessError("添加管理员无需二次确认，请直接发送添加指令")
+	}
 	operation, ok := s.confirmations.take(req.GroupID, req.SenderWxID, action)
 	if !ok || operation.TargetWxID != target {
 		return businessError("没有匹配的待确认操作，或确认已过期")
@@ -241,12 +283,8 @@ func (s *Service) confirmRoleChange(req Request, kind managementKind) Response {
 	s.managementMu.Lock()
 	defer s.managementMu.Unlock()
 	switch action {
-	case actionAddRoot:
-		err = s.admins.SetRole(target, admin.RoleRoot)
 	case actionRemoveRoot:
 		err = s.admins.DemoteRoot(target)
-	case actionAddAdmin:
-		err = s.admins.SetRole(target, admin.RoleAdmin)
 	case actionRemoveAdmin:
 		err = s.admins.Delete(target)
 	}
@@ -257,9 +295,7 @@ func (s *Service) confirmRoleChange(req Request, kind managementKind) Response {
 		return businessError("权限已更新，但审计记录失败，请联系维护人员")
 	}
 	reply := map[operationAction]string{
-		actionAddRoot:     "已添加为全局动态根管理员",
 		actionRemoveRoot:  "已移除动态根管理员角色，并降为全局普通管理员",
-		actionAddAdmin:    "已添加为全局管理员",
 		actionRemoveAdmin: "已移除全局管理员权限",
 	}[action]
 	return Response{Handled: true, Reply: reply, ReplyAtWxIDs: []string{target}}
@@ -303,12 +339,13 @@ func (s *Service) startCustomerBinding(ctx context.Context, req Request, command
 	if strings.TrimSpace(customer.Code) == "" {
 		customer.Code = strings.TrimSpace(command.CustomerCode)
 	}
-	action, confirmText := actionBindCustomer, "确认绑定"
-	if command.Kind == manageRebindCustomer {
-		action, confirmText = actionRebindCustomer, "确认改绑"
+	operation := pendingOperation{Action: actionBindCustomer, ActorWxID: req.SenderWxID, GroupID: req.GroupID, CustomerCode: customer.Code, CustomerName: customer.Name}
+	if command.Kind == manageBindCustomer {
+		return s.applyCustomerBinding(req, actionBindCustomer, operation)
 	}
-	s.confirmations.put(pendingOperation{Action: action, ActorWxID: req.SenderWxID, GroupID: req.GroupID, CustomerCode: customer.Code, CustomerName: customer.Name}, s.confirmationTTL)
-	return Response{Handled: true, Reply: fmt.Sprintf("找到客户：%s（%s）\n请在 %s 内发送：\n@机器人 %s %s", firstNonEmpty(customer.Name, "未命名客户"), customer.Code, formatTTL(s.confirmationTTL), confirmText, customer.Code)}
+	operation.Action = actionRebindCustomer
+	s.confirmations.put(operation, s.confirmationTTL)
+	return Response{Handled: true, Reply: fmt.Sprintf("找到客户：%s（%s）\n请在 %s 内发送：\n@机器人 确认改绑 %s", firstNonEmpty(customer.Name, "未命名客户"), customer.Code, formatTTL(s.confirmationTTL), customer.Code)}
 }
 
 func (s *Service) confirmCustomerBinding(req Request, command managementCommand) Response {
@@ -316,15 +353,20 @@ func (s *Service) confirmCustomerBinding(req Request, command managementCommand)
 		return businessError("只有固定所有者或根管理员可以修改客户群绑定")
 	}
 	action := map[managementKind]operationAction{
-		manageConfirmBindCustomer:   actionBindCustomer,
 		manageConfirmRebindCustomer: actionRebindCustomer,
 		manageConfirmUnbindCustomer: actionUnbindCustomer,
 	}[command.Kind]
+	if action == "" {
+		return businessError("首次绑定客户群无需二次确认，请直接发送绑定客户指令")
+	}
 	operation, ok := s.confirmations.take(req.GroupID, req.SenderWxID, action)
 	if !ok || operation.CustomerCode != strings.TrimSpace(command.CustomerCode) {
 		return businessError("没有匹配的待确认操作，或确认已过期")
 	}
+	return s.applyCustomerBinding(req, action, operation)
+}
 
+func (s *Service) applyCustomerBinding(req Request, action operationAction, operation pendingOperation) Response {
 	s.managementMu.Lock()
 	defer s.managementMu.Unlock()
 	previous, found := s.groups.Get(req.GroupID)
@@ -377,12 +419,14 @@ func (s *Service) startAdminGroupBinding(req Request, kind managementKind) Respo
 		return businessError("只有固定所有者可以修改管理员群绑定")
 	}
 	binding, found := s.groups.Get(req.GroupID)
-	action, instruction := actionBindAdminGroup, "确认绑定管理员群"
+	var action operationAction
+	var instruction string
 	switch kind {
 	case manageBindAdminGroup:
 		if found && binding.Enabled {
 			return businessError("当前群已经绑定；转换群类型请使用改绑管理员群")
 		}
+		return s.applyAdminGroupBinding(req, actionBindAdminGroup)
 	case manageRebindAdminGroup:
 		if !found || !binding.Enabled || binding.Type != group.TypeCustomer {
 			return businessError("只有已绑定客户群可以改绑为管理员群")
@@ -403,14 +447,19 @@ func (s *Service) confirmAdminGroupBinding(req Request, kind managementKind) Res
 		return businessError("只有固定所有者可以修改管理员群绑定")
 	}
 	action := map[managementKind]operationAction{
-		manageConfirmBindAdminGroup:   actionBindAdminGroup,
 		manageConfirmRebindAdminGroup: actionRebindAdminGroup,
 		manageConfirmUnbindAdminGroup: actionUnbindAdminGroup,
 	}[kind]
+	if action == "" {
+		return businessError("首次绑定管理员群无需二次确认，请直接发送绑定管理员群指令")
+	}
 	if _, ok := s.confirmations.take(req.GroupID, req.SenderWxID, action); !ok {
 		return businessError("没有匹配的待确认操作，或确认已过期")
 	}
+	return s.applyAdminGroupBinding(req, action)
+}
 
+func (s *Service) applyAdminGroupBinding(req Request, action operationAction) Response {
 	s.managementMu.Lock()
 	defer s.managementMu.Unlock()
 	previous, found := s.groups.Get(req.GroupID)

@@ -251,24 +251,23 @@ func managementRequest(groupID, sender, content, target string, messageID int64)
 	return req
 }
 
-func TestRootAdminsManageDynamicRolesWithConfirmation(t *testing.T) {
+func TestRoleAdditionsAreImmediateAndRemovalsRequireConfirmation(t *testing.T) {
 	service := newTestService(&fakeBackend{})
 	auditLog := &memoryAudit{}
 	service.audit = auditLog
 
-	start := service.Route(context.Background(), managementRequest("unbound@chatroom", "root-wxid", "@机器人 添加 @W 管理员", "new-admin", 100))
-	if !start.Handled || start.Error != "" || !strings.Contains(start.Reply, "确认添加") {
-		t.Fatalf("start add admin = %+v", start)
+	addAdmin := service.Route(context.Background(), managementRequest("unbound@chatroom", "root-wxid", "@机器人 添加 @W 管理员", "new-admin", 100))
+	if !addAdmin.Handled || addAdmin.Error != "" || !service.admins.IsAdmin("new-admin") || strings.Contains(addAdmin.Reply, "确认") {
+		t.Fatalf("immediate add admin = %+v", addAdmin)
 	}
-	confirm := service.Route(context.Background(), managementRequest("unbound@chatroom", "root-wxid", "@机器人 确认添加 @W 管理员", "new-admin", 101))
-	if !confirm.Handled || confirm.Error != "" || !service.admins.IsAdmin("new-admin") {
-		t.Fatalf("confirm add admin = %+v", confirm)
+	legacyConfirm := service.Route(context.Background(), managementRequest("unbound@chatroom", "root-wxid", "@机器人 确认添加 @W 管理员", "new-admin", 101))
+	if !legacyConfirm.Handled || legacyConfirm.Error == "" {
+		t.Fatalf("legacy add confirmation was not rejected: %+v", legacyConfirm)
 	}
 
-	startRoot := service.Route(context.Background(), managementRequest("other@chatroom", "root-wxid", "添加 @R 根管理员", "new-root", 102))
-	confirmRoot := service.Route(context.Background(), managementRequest("other@chatroom", "root-wxid", "确认添加 @R 根管理员", "new-root", 103))
-	if startRoot.Error != "" || confirmRoot.Error != "" || !service.admins.IsRoot("new-root") {
-		t.Fatalf("dynamic root creation failed: start=%+v confirm=%+v", startRoot, confirmRoot)
+	addRoot := service.Route(context.Background(), managementRequest("other@chatroom", "root-wxid", "添加 @R 根管理员", "new-root", 102))
+	if addRoot.Error != "" || !service.admins.IsRoot("new-root") || strings.Contains(addRoot.Reply, "确认") {
+		t.Fatalf("immediate dynamic root creation failed: %+v", addRoot)
 	}
 
 	blockedOwnerRemoval := service.Route(context.Background(), managementRequest("other@chatroom", "new-root", "移除 @Y 根管理员", "owner-wxid", 104))
@@ -294,10 +293,11 @@ func TestRoleChangeRequiresRealSingleMentionAndSameActor(t *testing.T) {
 		t.Fatalf("missing real mention was accepted: %+v", missingMention)
 	}
 
-	start := service.Route(context.Background(), managementRequest("group@chatroom", "root-wxid", "添加 @W 管理员", "target", 111))
-	wrongActor := service.Route(context.Background(), managementRequest("group@chatroom", "owner-wxid", "确认添加 @W 管理员", "target", 112))
-	if start.Error != "" || wrongActor.Error == "" || service.admins.IsAdmin("target") {
-		t.Fatalf("different actor confirmed operation: start=%+v confirm=%+v", start, wrongActor)
+	add := service.Route(context.Background(), managementRequest("group@chatroom", "root-wxid", "添加 @W 管理员", "target", 111))
+	startRemove := service.Route(context.Background(), managementRequest("group@chatroom", "root-wxid", "移除 @W 管理员", "target", 112))
+	wrongActor := service.Route(context.Background(), managementRequest("group@chatroom", "owner-wxid", "确认移除 @W 管理员", "target", 113))
+	if add.Error != "" || startRemove.Error != "" || wrongActor.Error == "" || !service.admins.IsAdmin("target") {
+		t.Fatalf("different actor confirmed removal: add=%+v start=%+v confirm=%+v", add, startRemove, wrongActor)
 	}
 }
 
@@ -313,10 +313,13 @@ func TestCustomerBindingLifecycleAndPermissions(t *testing.T) {
 	}
 
 	start := service.Route(context.Background(), managementRequest(groupID, "root-wxid", "绑定客户 270", "", 121))
-	confirm := service.Route(context.Background(), managementRequest(groupID, "root-wxid", "确认绑定 270", "", 122))
 	binding, ok := service.groups.Get(groupID)
-	if start.Error != "" || confirm.Error != "" || !ok || binding.Type != group.TypeCustomer || binding.CustomerCode != "270" {
-		t.Fatalf("customer bind failed: start=%+v confirm=%+v binding=%+v", start, confirm, binding)
+	if start.Error != "" || strings.Contains(start.Reply, "确认") || !ok || binding.Type != group.TypeCustomer || binding.CustomerCode != "270" {
+		t.Fatalf("immediate customer bind failed: response=%+v binding=%+v", start, binding)
+	}
+	legacyConfirm := service.Route(context.Background(), managementRequest(groupID, "root-wxid", "确认绑定 270", "", 122))
+	if legacyConfirm.Error == "" {
+		t.Fatalf("legacy customer bind confirmation was not rejected: %+v", legacyConfirm)
 	}
 
 	startRebind := service.Route(context.Background(), managementRequest(groupID, "root-wxid", "改绑客户 365", "", 123))
@@ -348,10 +351,13 @@ func TestAdminGroupBindingIsOwnerOnlyAndReversible(t *testing.T) {
 	}
 
 	start := service.Route(context.Background(), managementRequest(groupID, "owner-wxid", "绑定管理员群", "", 131))
-	confirm := service.Route(context.Background(), managementRequest(groupID, "owner-wxid", "确认绑定管理员群", "", 132))
 	binding, ok := service.groups.Get(groupID)
-	if start.Error != "" || confirm.Error != "" || !ok || binding.Type != group.TypeAdmin {
-		t.Fatalf("admin group bind failed: start=%+v confirm=%+v binding=%+v", start, confirm, binding)
+	if start.Error != "" || strings.Contains(start.Reply, "确认") || !ok || binding.Type != group.TypeAdmin {
+		t.Fatalf("immediate admin group bind failed: response=%+v binding=%+v", start, binding)
+	}
+	legacyConfirm := service.Route(context.Background(), managementRequest(groupID, "owner-wxid", "确认绑定管理员群", "", 132))
+	if legacyConfirm.Error == "" {
+		t.Fatalf("legacy admin group confirmation was not rejected: %+v", legacyConfirm)
 	}
 
 	startUnbind := service.Route(context.Background(), managementRequest(groupID, "owner-wxid", "解绑管理员群", "", 133))
@@ -370,9 +376,9 @@ func TestConfirmationExpiresAndBusinessCommandsRemainFailClosed(t *testing.T) {
 	service.confirmations.now = func() time.Time { return clock }
 	service.confirmationTTL = time.Minute
 
-	start := service.Route(context.Background(), managementRequest("expiring@chatroom", "root-wxid", "绑定客户 270", "", 140))
+	start := service.Route(context.Background(), managementRequest("customer@chatroom", "root-wxid", "改绑客户 365", "", 140))
 	clock = clock.Add(2 * time.Minute)
-	confirm := service.Route(context.Background(), managementRequest("expiring@chatroom", "root-wxid", "确认绑定 270", "", 141))
+	confirm := service.Route(context.Background(), managementRequest("customer@chatroom", "root-wxid", "确认改绑 365", "", 141))
 	if start.Error != "" || confirm.Error == "" {
 		t.Fatalf("expired confirmation was accepted: start=%+v confirm=%+v", start, confirm)
 	}
