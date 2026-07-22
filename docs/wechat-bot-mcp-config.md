@@ -14,16 +14,17 @@ MCP 不再是库存、订单等实时业务的主入口。hp0912 内置 AI 负�
 
 ## 0. 实现状态
 
-截至 2026-07-22：
+截至 2026-07-23：
 
 - hp0912 平台、微信登录、内置 AI 已部署并验证。
 - 自定义客户端 AI 文本尾注已部署并验证。
-- `BusinessRouterPlugin`、`business-gateway` 基础链路已部署到飞牛，Token、权限、故障闭合、AI 放行和 AI 尾注已经实测。
-- 固定所有者、动态管理员、群内绑定和审计功能已完成代码与自动化测试，待执行本次飞牛升级。
-- ThinkPHP `/api/bot/health`、`/api/bot/inventory` 和独立 Bot Token 鉴权已经连通；`/api/bot/customers/resolve` 已完成代码，待发布到 ThinkPHP。
+- `BusinessRouterPlugin` 和 `business-gateway` 已部署到飞牛，Token、权限、故障闭合、AI 放行和 AI 尾注已经实测。
+- 固定所有者、动态管理员、群内绑定、风险操作确认和审计功能已部署并通过微信测试。
+- 权限感知的`菜单`与`帮助`已部署；旧`业务帮助`作为兼容别名保留。
+- ThinkPHP `/api/bot/health`、`/api/bot/inventory`、`/api/bot/customers/resolve` 和独立 Bot Token 鉴权已经连通验证。
 - 旧 `wangzhan/bot-mcp` 已停用但暂不删除，只保留作迁移参考。
 
-管理员和群绑定升级验收完成前不得接入真实客户群。
+真实客户群接入前仍应逐群核对 `customer_code`，并先在测试群验证权限和库存隔离。
 
 ## 1. 业务规则
 

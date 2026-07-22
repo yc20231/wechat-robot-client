@@ -4,7 +4,7 @@
 
 ## 0. 当前状态
 
-截至 2026-07-22：
+截至 2026-07-23：
 
 | 能力 | 状态 |
 |---|---|
@@ -14,13 +14,14 @@
 | hp0912 内置 AI | 已验证 |
 | AI 最终文本回复尾注 | 已部署并验证 |
 | `BusinessRouterPlugin` | 已部署，前置短路和非业务 AI 放行已验证 |
-| `business-gateway` | 已部署，健康检查、Token 和基础路由已验证 |
+| `business-gateway` | 已部署，源码版本 `bbd09d4` |
 | ThinkPHP 健康检查和库存接口 | 已连通验证 |
 | 固定所有者、动态管理员和群内绑定 | 已部署并完成微信测试 |
 | ThinkPHP 客户代号校验接口 | 已部署并验证 |
-| 确认策略：新增/首次绑定立即生效 | 代码完成后只需更新业务网关 |
+| 确认策略：新增/首次绑定立即生效 | 已部署并验证 |
+| 权限感知菜单和帮助 | 已部署并验证 |
 
-当前飞牛已完成“微信收发 + 内置 AI + AI 回复尾注 + 前置业务路由 + 全局管理员 + 群内绑定”的联调。本次确认策略调整只修改 `business-gateway`：添加管理员和首次绑定立即生效，移除/降级、改绑和解绑继续要求二次确认。
+当前飞牛已完成“微信收发 + 内置 AI + AI 回复尾注 + 前置业务路由 + 全局管理员 + 群内绑定 + 菜单/帮助”的联调。添加管理员和首次绑定立即生效；移除/降级、改绑和解绑继续要求二次确认。
 
 ## 1. 目标架构
 
@@ -39,7 +40,7 @@ hp0912/wechat-robot-client
 - `business-gateway` 负责群绑定、身份判断、权限、去重和固定业务指令。
 - ThinkPHP 负责库存等业务数据，并再次执行 `customer_code` 数据隔离。
 
-旧的 `wangzhan/bot-mcp` 不是新架构的生产网关。它在新网关完成前只保留作代码参考，不启动、不删除。
+旧的 `wangzhan/bot-mcp` 不是新架构的生产网关，当前保持停用，只保留作迁移参考。
 
 ## 2. 使用范围与安全前提
 
@@ -480,6 +481,18 @@ handled=false -> 继续 hp0912 内置 AI
 
 客户端容器会在 `/data/skills/.business-gateway.json` 读取网关 URL、内部 Token 和超时。该文件含密钥，权限必须设为 `600`，不得提交。
 
+后续更新时，先按改动范围判断需要更新哪一层：
+
+| 改动内容 | 飞牛需要执行的操作 |
+|---|---|
+| 添加/移除管理员、绑定/解绑群、修改业务数据 | 不重建镜像；群内命令或业务后台操作后立即生效 |
+| 修改 `business-gateway/.env` | 只重启或强制重建 `business-gateway` 容器 |
+| 修改网关命令、权限、菜单或业务路由逻辑 | 只重新编译并切换 `business-gateway` 镜像 |
+| 修改 ThinkPHP API 或网站业务数据逻辑 | 只发布网站后端；接口契约未变时无需更新飞牛镜像 |
+| 修改消息解析、真实 @ wxid 提取或客户端插件 | 重新编译客户端，并在管理后台只重建客户端容器 |
+
+日常增加菜单项或修改管理规则通常只涉及网关，不需要替换客户端镜像，也不需要重建微信协议服务端。
+
 ### 5.1 发布 ThinkPHP 客户校验接口
 
 先发布网站仓库中的以下文件，再升级网关：
@@ -520,11 +533,26 @@ curl -sS \
 
 ### 5.2 更新源码和网关配置
 
-飞牛仓库允许 `.deploy/local` 保留本机配置改动；升级前先确认本次上游变更不会覆盖它们：
+飞牛仓库允许 `.deploy/local` 保留本机配置改动。飞牛访问 GitHub 偶尔会超时，使用 HTTP/1.1 和重试拉取，再确认本次上游变更不会覆盖本机配置：
 
 ```bash
 cd /vol1/1000/wechat-robot/jiqiren
-git fetch origin
+
+success=0
+for attempt in 1 2 3 4 5; do
+  echo "第 ${attempt} 次拉取..."
+  if timeout 60 git -c http.version=HTTP/1.1 fetch --prune origin main; then
+    success=1
+    break
+  fi
+  sleep 5
+done
+
+if [ "$success" -ne 1 ]; then
+  echo "FETCH_FAILED"
+  exit 1
+fi
+
 git diff --name-only HEAD..origin/main
 git merge --ff-only origin/main
 git log -1 --oneline
@@ -542,24 +570,32 @@ CONFIRMATION_TTL_SEC=300
 
 `wxid_4s48yvri1r7f22` 是微信名“Y”的固定所有者 wxid。固定所有者来自环境变量，不写入动态管理员文件，不能被群内命令移除。旧 `ADMIN_WXIDS` 可以暂时保留，但 `OWNER_WXIDS` 存在时以它为准。
 
-### 5.3 构建并切换网关
+### 5.3 日常构建并切换网关
 
-Docker Hub 代理可用时可直接执行 `docker compose up -d --build`。飞牛已出现过 `docker.fnnas.com ... 401 Unauthorized`，推荐使用本地 Go 工具链：
+Docker Hub 代理可用时可直接执行 `docker compose up -d --build`。飞牛已出现过 `docker.fnnas.com ... 401 Unauthorized`，日常更新推荐使用已经安装的本地 Go 工具链。以下流程先生成 `.new` 文件并验证可执行权限，再替换正式二进制和镜像：
 
 ```bash
 cd /vol1/1000/wechat-robot/jiqiren/business-gateway
+
+export GOPROXY='https://goproxy.cn,direct'
+REPO_ROOT="$(cd .. && pwd)"
+export GOMODCACHE="$REPO_ROOT/.tools/gomodcache"
+export GOCACHE="$REPO_ROOT/.tools/gobuildcache"
+mkdir -p "$GOMODCACHE" "$GOCACHE"
 
 ../.tools/go/bin/go test ./...
 GOMAXPROCS=2 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   ../.tools/go/bin/go build \
   -trimpath -ldflags='-s -w' \
-  -o business-gateway-custom ./cmd/business-gateway
-chmod 755 business-gateway-custom
+  -o business-gateway-custom.new ./cmd/business-gateway
+chmod 755 business-gateway-custom.new
+test -x business-gateway-custom.new
+mv business-gateway-custom.new business-gateway-custom
 
 GATEWAY_CONTAINER="$(docker compose ps -q business-gateway)"
 if [ -n "$GATEWAY_CONTAINER" ]; then
   GATEWAY_IMAGE_ID="$(docker inspect "$GATEWAY_CONTAINER" --format '{{.Image}}')"
-  docker tag "$GATEWAY_IMAGE_ID" jiqiren/business-gateway:rollback-before-admin-v2
+  docker tag "$GATEWAY_IMAGE_ID" jiqiren/business-gateway:rollback-before-gateway-update
 fi
 
 docker build -f Dockerfile.fnos-runtime \
@@ -571,6 +607,8 @@ curl -sS -w '\nHTTP_STATUS=%{http_code}\n' http://127.0.0.1:18080/healthz
 ```
 
 预期网关为 `Up`，健康检查返回 `{"status":"ok"}` 和 HTTP 200。命名卷 `business-gateway-data` 必须保留。
+
+这个流程只更新网关。不要在 hp0912 管理后台删除客户端容器，也不要重建 `server_<robot_code>`、MySQL 或 Redis。
 
 ### 5.4 构建并切换客户端
 
@@ -673,7 +711,7 @@ docker tag \
 ```bash
 cd /vol1/1000/wechat-robot/jiqiren/business-gateway
 docker tag \
-  jiqiren/business-gateway:rollback-before-admin-v2 \
+  jiqiren/business-gateway:rollback-before-gateway-update \
   jiqiren/business-gateway:local
 docker compose up -d --no-build --force-recreate
 ```
@@ -791,18 +829,20 @@ Appid + ":" + NewMsgId
 
 - [x] 自定义客户端基础业务镜像运行
 - [x] `business-gateway` 基础同步路由可用
+- [x] 权限感知的菜单、帮助和旧业务帮助别名可用
 - [ ] 客户群只能查询绑定客户
 - [ ] 管理员群普通成员不能跨客户查询
 - [x] 管理员权限拒绝已通过内部路由验证
 - [x] 业务失败不会落入 AI
 - [x] 非业务消息继续进入内置 AI
-- [ ] 固定所有者 Y 不可移除
-- [ ] 动态根管理员和普通管理员全局增删
-- [ ] 客户群和管理员群绑定、改绑、解绑
+- [x] 固定所有者 Y 不可移除
+- [x] 动态根管理员和普通管理员全局增删
+- [x] 客户群和管理员群绑定、改绑、解绑
+- [x] 新增和首次绑定立即生效，移除、改绑和解绑要求二次确认
 - [ ] 网关重启后管理员和群绑定仍存在
 - [ ] Webhook 去重和审计可用
 
-业务链路全部完成前，不绑定真实客户群。
+接入真实客户群时逐群核对 `customer_code`，先执行“查看群绑定”，再用该客户的一项已知库存做隔离验证。未完成隔离验证的群不要投入正式使用。
 
 ## 9. 故障排查
 
