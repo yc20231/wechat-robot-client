@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"wechat-robot-client/interface/plugin"
+	"wechat-robot-client/model"
+	"wechat-robot-client/pkg/robot"
 	"wechat-robot-client/vars"
 )
 
@@ -35,19 +37,21 @@ type businessRouterConfig struct {
 }
 
 type BusinessRouteRequest struct {
-	RobotWxID  string `json:"robot_wxid"`
-	RobotCode  string `json:"robot_code,omitempty"`
-	GroupID    string `json:"group_id"`
-	SenderWxID string `json:"sender_wxid"`
-	MessageID  int64  `json:"message_id"`
-	Content    string `json:"content"`
-	IsAtMe     bool   `json:"is_at_me"`
+	RobotWxID      string   `json:"robot_wxid"`
+	RobotCode      string   `json:"robot_code,omitempty"`
+	GroupID        string   `json:"group_id"`
+	SenderWxID     string   `json:"sender_wxid"`
+	MessageID      int64    `json:"message_id"`
+	Content        string   `json:"content"`
+	IsAtMe         bool     `json:"is_at_me"`
+	MentionedWxIDs []string `json:"mentioned_wxids,omitempty"`
 }
 
 type BusinessRouteResponse struct {
-	Handled bool   `json:"handled"`
-	Reply   string `json:"reply,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Handled      bool     `json:"handled"`
+	Reply        string   `json:"reply,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	ReplyAtWxIDs []string `json:"reply_at_wxids,omitempty"`
 }
 
 type businessRouteClient interface {
@@ -227,13 +231,14 @@ func (p *BusinessRouterPlugin) Run(ctx *plugin.MessageContext) {
 		routeContext = context.Background()
 	}
 	response, err := p.client.Route(routeContext, BusinessRouteRequest{
-		RobotWxID:  vars.RobotRuntime.WxID,
-		RobotCode:  vars.RobotRuntime.RobotCode,
-		GroupID:    ctx.Message.FromWxID,
-		SenderWxID: ctx.Message.SenderWxID,
-		MessageID:  ctx.Message.MsgId,
-		Content:    ctx.MessageContent,
-		IsAtMe:     ctx.Message.IsAtMe,
+		RobotWxID:      vars.RobotRuntime.WxID,
+		RobotCode:      vars.RobotRuntime.RobotCode,
+		GroupID:        ctx.Message.FromWxID,
+		SenderWxID:     ctx.Message.SenderWxID,
+		MessageID:      ctx.Message.MsgId,
+		Content:        ctx.MessageContent,
+		IsAtMe:         ctx.Message.IsAtMe,
+		MentionedWxIDs: extractMentionedWxIDs(ctx.Message),
 	})
 	if err != nil {
 		log.Printf("[BusinessRouter] 路由失败 msg_id=%d: %v", ctx.Message.MsgId, err)
@@ -247,15 +252,52 @@ func (p *BusinessRouterPlugin) Run(ctx *plugin.MessageContext) {
 	if strings.TrimSpace(response.Error) != "" {
 		reply = strings.TrimSpace(response.Error)
 	}
-	p.replyAndStop(ctx, reply)
+	p.replyAndStop(ctx, reply, response.ReplyAtWxIDs...)
 }
 
-func (p *BusinessRouterPlugin) replyAndStop(ctx *plugin.MessageContext, reply string) {
+func extractMentionedWxIDs(message *model.Message) []string {
+	if message == nil || strings.TrimSpace(message.MessageSource) == "" {
+		return nil
+	}
+	var source robot.MessageSource
+	if err := vars.RobotRuntime.XmlDecoder(message.MessageSource, &source); err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, raw := range strings.Split(source.AtUserList, ",") {
+		wxID := strings.TrimSpace(raw)
+		if wxID == "" {
+			continue
+		}
+		if _, ok := seen[wxID]; ok {
+			continue
+		}
+		seen[wxID] = struct{}{}
+		result = append(result, wxID)
+	}
+	return result
+}
+
+func (p *BusinessRouterPlugin) replyAndStop(ctx *plugin.MessageContext, reply string, extraAtWxIDs ...string) {
 	ctx.Handled = true
 	if strings.TrimSpace(reply) == "" {
 		return
 	}
-	if err := ctx.MessageService.SendTextMessage(ctx.Message.FromWxID, reply, ctx.Message.SenderWxID); err != nil {
+	atWxIDs := []string{ctx.Message.SenderWxID}
+	seen := map[string]struct{}{ctx.Message.SenderWxID: {}}
+	for _, wxID := range extraAtWxIDs {
+		wxID = strings.TrimSpace(wxID)
+		if wxID == "" || wxID == vars.RobotRuntime.WxID {
+			continue
+		}
+		if _, ok := seen[wxID]; ok {
+			continue
+		}
+		seen[wxID] = struct{}{}
+		atWxIDs = append(atWxIDs, wxID)
+	}
+	if err := ctx.MessageService.SendTextMessage(ctx.Message.FromWxID, reply, atWxIDs...); err != nil {
 		log.Printf("[BusinessRouter] 发送业务回复失败 msg_id=%d: %v", ctx.Message.MsgId, err)
 	}
 }

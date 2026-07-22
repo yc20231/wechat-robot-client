@@ -49,8 +49,15 @@ type Inventory struct {
 	Items        []InventoryItem  `json:"items"`
 }
 
+type Customer struct {
+	Exists bool   `json:"exists"`
+	Code   string `json:"customer_code"`
+	Name   string `json:"customer_name"`
+}
+
 type Service interface {
 	QueryInventory(ctx context.Context, query InventoryQuery) (Inventory, error)
+	ResolveCustomer(ctx context.Context, customerCode string) (Customer, error)
 	Health(ctx context.Context) error
 }
 
@@ -116,6 +123,23 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("后端健康检查失败: %s", response.Message)
 	}
 	return nil
+}
+
+func (c *Client) ResolveCustomer(ctx context.Context, customerCode string) (Customer, error) {
+	params := url.Values{}
+	params.Set("customer_code", strings.TrimSpace(customerCode))
+	var response struct {
+		Code    int      `json:"code"`
+		Message string   `json:"message"`
+		Data    Customer `json:"data"`
+	}
+	if err := c.get(ctx, "/api/bot/customers/resolve", params, &response); err != nil {
+		return Customer{}, err
+	}
+	if response.Code != 0 {
+		return Customer{}, fmt.Errorf("后端拒绝客户校验: %s", response.Message)
+	}
+	return response.Data, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, target any) error {

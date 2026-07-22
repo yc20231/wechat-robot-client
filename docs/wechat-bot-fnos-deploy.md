@@ -1,10 +1,10 @@
 # 飞牛 OS 部署：hp0912 微信机器人平台 + 自定义客户端
 
-本文档记录当前已经实际验证的飞牛 OS 部署方式，以及后续接入库存业务网关的目标架构。
+本文档记录当前已经实际验证的飞牛 OS 部署方式，以及库存业务网关的升级和回滚流程。
 
 ## 0. 当前状态
 
-截至 2026-07-21：
+截至 2026-07-22：
 
 | 能力 | 状态 |
 |---|---|
@@ -13,12 +13,13 @@
 | 客户端和协议服务端重启后恢复登录态 | 已验证 |
 | hp0912 内置 AI | 已验证 |
 | AI 最终文本回复尾注 | 已部署并验证 |
-| `BusinessRouterPlugin` | 代码和测试已完成，待构建部署 |
-| `business-gateway` | 代码和测试已完成，待飞牛部署联调 |
-| ThinkPHP 健康检查和库存接口 | 已存在，待网关联调 |
-| 客户群 `customer_code` 绑定和管理员权限 | 网关已实现，待配置真实群 |
+| `BusinessRouterPlugin` | 已部署，前置短路和非业务 AI 放行已验证 |
+| `business-gateway` | 已部署，健康检查、Token 和基础路由已验证 |
+| ThinkPHP 健康检查和库存接口 | 已连通验证 |
+| 固定所有者、动态管理员和群内绑定 | 代码和测试已完成，待执行本次升级 |
+| ThinkPHP 客户代号校验接口 | 代码已完成，待发布 |
 
-当前线上只完成“微信收发 + 内置 AI + AI 回复尾注”；前置业务路由已经进入“本地代码完成、待部署联调”阶段。端到端验收完成前不得接入真实客户群，也不得让 AI 猜测库存、订单、价格、余额或排期。
+当前飞牛已完成“微信收发 + 内置 AI + AI 回复尾注 + 前置业务路由”基础联调。本次升级增加固定所有者、动态管理员、群内客户/管理员群绑定、二次确认和持久化审计。升级验收完成前不得接入真实客户群，也不得让 AI 猜测库存、订单、价格、余额或排期。
 
 ## 1. 目标架构
 
@@ -428,7 +429,7 @@ docker image ls --no-trunc jiqiren/wechat-robot-client
 docker image ls --no-trunc registry.cn-shenzhen.aliyuncs.com/houhou/wechat-robot-client
 ```
 
-## 5. 前置业务路由（代码已完成，待部署）
+## 5. 前置业务路由
 
 `BusinessRouterPlugin` 已注册在 hp0912 AI 插件之前，并同步调用：
 
@@ -468,7 +469,7 @@ handled=false -> 继续 hp0912 内置 AI
 /Users/Admin/Documents/ios_app/jiqiren/business-gateway
 ```
 
-该目录和接口已经实现，包含群绑定、管理员白名单、库存查询、管理 API、Webhook 审计和内存去重。部署说明见 `business-gateway/README.md`。
+该目录和接口已经实现并完成基础联调，包含群绑定、全局管理员、库存查询、管理 API、持久化审计和消息去重。部署说明见 `business-gateway/README.md`。
 
 上游管理后台创建客户端容器时使用固定环境变量列表，不会透传新增变量。飞牛部署必须把客户端配置写入现有 Skills 挂载目录：
 
@@ -478,15 +479,266 @@ handled=false -> 继续 hp0912 内置 AI
 
 客户端容器会在 `/data/skills/.business-gateway.json` 读取网关 URL、内部 Token 和超时。该文件含密钥，权限必须设为 `600`，不得提交。
 
+### 5.1 发布 ThinkPHP 客户校验接口
+
+先发布网站仓库中的以下文件，再升级网关：
+
+```text
+backend/app/controller/BotCustomerController.php
+backend/app/service/BotCustomerService.php
+backend/route/app.php
+```
+
+在 ThinkPHP 后端部署目录执行：
+
+```bash
+php -l app/controller/BotCustomerController.php
+php -l app/service/BotCustomerService.php
+php -l route/app.php
+php think clear
+```
+
+然后从飞牛测试。命令从 `.env` 读取 Token，不会把 Token 打印出来：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren/business-gateway
+set -a
+. ./.env
+set +a
+
+curl -sS \
+  --connect-timeout 10 \
+  --max-time 20 \
+  -H "X-Bot-Token: ${BOT_TOKEN}" \
+  -H 'User-Agent: bot-mcp/business-gateway-1.0' \
+  -w '\nHTTP_STATUS=%{http_code}\n' \
+  "${BACKEND_URL%/}/api/bot/customers/resolve?customer_code=270"
+```
+
+预期 `HTTP_STATUS=200`，已启用客户返回 `"exists":true`，不存在或禁用客户返回 `"exists":false`。
+
+### 5.2 更新源码和网关配置
+
+飞牛仓库允许 `.deploy/local` 保留本机配置改动；升级前先确认本次上游变更不会覆盖它们：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren
+git fetch origin
+git diff --name-only HEAD..origin/main
+git merge --ff-only origin/main
+git log -1 --oneline
+```
+
+编辑 `business-gateway/.env`，保留现有 Token 和 URL，并确保包含：
+
+```env
+BINDINGS_FILE=/data/groups.json
+ADMINS_FILE=/data/admins.json
+AUDIT_FILE=/data/audit.jsonl
+OWNER_WXIDS=wxid_4s48yvri1r7f22
+CONFIRMATION_TTL_SEC=300
+```
+
+`wxid_4s48yvri1r7f22` 是微信名“Y”的固定所有者 wxid。固定所有者来自环境变量，不写入动态管理员文件，不能被群内命令移除。旧 `ADMIN_WXIDS` 可以暂时保留，但 `OWNER_WXIDS` 存在时以它为准。
+
+### 5.3 构建并切换网关
+
+Docker Hub 代理可用时可直接执行 `docker compose up -d --build`。飞牛已出现过 `docker.fnnas.com ... 401 Unauthorized`，推荐使用本地 Go 工具链：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren/business-gateway
+
+../.tools/go/bin/go test ./...
+GOMAXPROCS=2 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  ../.tools/go/bin/go build \
+  -trimpath -ldflags='-s -w' \
+  -o business-gateway-custom ./cmd/business-gateway
+chmod 755 business-gateway-custom
+
+GATEWAY_CONTAINER="$(docker compose ps -q business-gateway)"
+if [ -n "$GATEWAY_CONTAINER" ]; then
+  GATEWAY_IMAGE_ID="$(docker inspect "$GATEWAY_CONTAINER" --format '{{.Image}}')"
+  docker tag "$GATEWAY_IMAGE_ID" jiqiren/business-gateway:rollback-before-admin-v2
+fi
+
+docker build -f Dockerfile.fnos-runtime \
+  -t jiqiren/business-gateway:local .
+docker compose config -q
+docker compose up -d --no-build --force-recreate
+docker compose ps
+curl -sS -w '\nHTTP_STATUS=%{http_code}\n' http://127.0.0.1:18080/healthz
+```
+
+预期网关为 `Up`，健康检查返回 `{"status":"ok"}` 和 HTTP 200。命名卷 `business-gateway-data` 必须保留。
+
+### 5.4 构建并切换客户端
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren
+
+.tools/go/bin/go test ./plugin/plugins \
+  -run 'Test(BusinessRouter|LoadBusinessRouter|InvalidConfiguredBusinessRouter|AppendAIReplyFooter)'
+
+GOMAXPROCS=2 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  .tools/go/bin/go build \
+  -trimpath \
+  -ldflags='-s -w -X main.Version=business-admin-v2' \
+  -o wechat-robot-client-custom
+chmod 755 wechat-robot-client-custom
+
+mkdir -p .runtime-build
+cp wechat-robot-client-custom .runtime-build/
+cp Dockerfile.fnos-runtime .runtime-build/Dockerfile
+docker build -t jiqiren/wechat-robot-client:business-admin-v2 .runtime-build
+
+CLIENT='client_xiW55bPyM3D4o6s6'
+UPSTREAM='registry.cn-shenzhen.aliyuncs.com/houhou/wechat-robot-client'
+CURRENT_IMAGE_ID="$(docker inspect "$CLIENT" --format '{{.Image}}')"
+docker tag "$CURRENT_IMAGE_ID" "$UPSTREAM:rollback-before-admin-v2"
+docker tag jiqiren/wechat-robot-client:business-admin-v2 "$UPSTREAM:latest"
+```
+
+随后在 hp0912 管理后台只删除并重新创建客户端容器 `client_xiW55bPyM3D4o6s6`。不要删除或重建 `server_xiW55bPyM3D4o6s6`、MySQL、Redis，不要退出微信或重新扫码。
+
+验证运行镜像和配置：
+
+```bash
+docker inspect client_xiW55bPyM3D4o6s6 \
+  --format '镜像={{.Image}} 状态={{.State.Status}}'
+docker exec client_xiW55bPyM3D4o6s6 \
+  /bin/sh -lc 'test -r /data/skills/.business-gateway.json && stat -c "配置权限=%a 配置大小=%s" /data/skills/.business-gateway.json'
+docker logs --since 5m client_xiW55bPyM3D4o6s6 2>&1 \
+  | grep -E '启动 版本|BusinessRouter|初始化失败|panic' \
+  | tail -30
+```
+
+版本日志应包含 `business-admin-v2`，配置权限应为 `600`。
+
+### 5.5 微信验收
+
+先只在测试群验证。由固定所有者 Y 发送：
+
+```text
+@机器人 管理员列表
+@机器人 查看群绑定
+```
+
+选择一个测试账号 W 验证普通管理员的全局增删：
+
+```text
+@机器人 添加 @W 管理员
+@机器人 确认添加 @W 管理员
+@机器人 移除 @W 管理员
+@机器人 确认移除 @W 管理员
+```
+
+再验证客户群完整生命周期，`270` 替换为 ThinkPHP 已启用的测试客户代号：
+
+```text
+@机器人 绑定客户 270
+@机器人 确认绑定 270
+@机器人 查库存
+@机器人 解绑客户
+@机器人 确认解绑客户 270
+```
+
+普通消息应继续进入内置 AI，实时业务失败应被网关拦截且不能进入 AI。检查持久化文件和审计日志：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren/business-gateway
+docker compose exec business-gateway /bin/sh -lc '
+  ls -l /data/groups.json /data/admins.json /data/audit.jsonl
+  tail -n 20 /data/audit.jsonl
+'
+```
+
+重启网关后再次发送“管理员列表”和“查看群绑定”，确认动态管理员和群绑定仍然存在：
+
+```bash
+docker compose restart business-gateway
+docker compose ps
+```
+
+### 5.6 本次升级回滚
+
+客户端回滚：
+
+```bash
+docker tag \
+  registry.cn-shenzhen.aliyuncs.com/houhou/wechat-robot-client:rollback-before-admin-v2 \
+  registry.cn-shenzhen.aliyuncs.com/houhou/wechat-robot-client:latest
+```
+
+然后仍然只在管理后台删除并重新创建客户端容器。网关回滚：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren/business-gateway
+docker tag \
+  jiqiren/business-gateway:rollback-before-admin-v2 \
+  jiqiren/business-gateway:local
+docker compose up -d --no-build --force-recreate
+```
+
+回滚镜像时不要删除 `business-gateway-data` 卷。新版创建的 `/data/admins.json` 和 `/data/audit.jsonl` 可以保留，旧版不会使用它们。
+
 ## 6. 权限模型
 
 ```text
 客户群：group_id 固定绑定一个 customer_code，只能查询该客户
 
-管理员群：群类型必须为 admin，且发送者 wxid 必须在管理员白名单
+管理员群：群类型必须为 admin，且发送者必须是全局管理员
 ```
 
-管理员群不使用 `*` 作为客户编码，不允许通过群消息修改群身份。群绑定通过网站后台或受保护的管理 API 完成。
+角色权限：
+
+| 角色 | 作用域 | 权限 |
+|---|---|---|
+| 固定所有者 Y | 全局、不可移除 | 全部权限和管理员群管理 |
+| 动态根管理员 | 全局 | 管理动态管理员；绑定/改绑/解绑客户群 |
+| 动态普通管理员 | 全局 | 在管理员群跨客户查询 |
+
+动态根管理员可以添加或移除其他动态根管理员和普通管理员。移除动态根管理员会先降为普通管理员；固定所有者不能被移除或降级。
+
+所有变更指令都需要同一操作者在同一个群内于 5 分钟内确认。管理员目标取自微信消息真实 `atuserlist`，不能使用昵称文本冒充。
+
+角色管理命令：
+
+```text
+@机器人 管理员列表
+@机器人 添加 @W 根管理员
+@机器人 确认添加 @W 根管理员
+@机器人 移除 @W 根管理员
+@机器人 确认移除 @W 根管理员
+@机器人 添加 @W 管理员
+@机器人 确认添加 @W 管理员
+@机器人 移除 @W 管理员
+@机器人 确认移除 @W 管理员
+```
+
+客户群绑定命令：
+
+```text
+@机器人 查看群绑定
+@机器人 绑定客户 270
+@机器人 确认绑定 270
+@机器人 改绑客户 365
+@机器人 确认改绑 365
+@机器人 解绑客户
+@机器人 确认解绑客户 365
+```
+
+管理员群命令仅固定所有者可用：
+
+```text
+@机器人 绑定管理员群
+@机器人 确认绑定管理员群
+@机器人 改绑管理员群
+@机器人 确认改绑管理员群
+@机器人 解绑管理员群
+@机器人 确认解绑管理员群
+```
+
+管理员群不使用 `*` 作为客户编码。群绑定和动态管理员保存在网关数据卷，变更审计追加到 `/data/audit.jsonl`。
 
 ## 7. Webhook
 
@@ -532,13 +784,17 @@ Appid + ":" + NewMsgId
 
 飞牛部署验收：
 
-- [ ] 新自定义客户端镜像运行
-- [ ] `business-gateway` 同步路由可用
+- [x] 自定义客户端基础业务镜像运行
+- [x] `business-gateway` 基础同步路由可用
 - [ ] 客户群只能查询绑定客户
 - [ ] 管理员群普通成员不能跨客户查询
-- [ ] 管理员白名单成员可以跨客户查询
-- [ ] 业务失败不会落入 AI
-- [ ] 非业务消息继续进入内置 AI
+- [x] 管理员权限拒绝已通过内部路由验证
+- [x] 业务失败不会落入 AI
+- [x] 非业务消息继续进入内置 AI
+- [ ] 固定所有者 Y 不可移除
+- [ ] 动态根管理员和普通管理员全局增删
+- [ ] 客户群和管理员群绑定、改绑、解绑
+- [ ] 网关重启后管理员和群绑定仍存在
 - [ ] Webhook 去重和审计可用
 
 业务链路全部完成前，不绑定真实客户群。

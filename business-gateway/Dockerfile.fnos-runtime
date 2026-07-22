@@ -1,0 +1,11 @@
+FROM registry.cn-shenzhen.aliyuncs.com/houhou/silk-base:latest
+
+WORKDIR /app
+
+COPY --chmod=0755 business-gateway-custom /app/business-gateway
+
+RUN test -x /app/business-gateway
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/business-gateway"]

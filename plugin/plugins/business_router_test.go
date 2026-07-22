@@ -53,11 +53,12 @@ func businessContext(service pluginiface.MessageServiceIface) *pluginiface.Messa
 	return &pluginiface.MessageContext{
 		Context: context.Background(),
 		Message: &model.Message{
-			MsgId:      123,
-			IsChatRoom: true,
-			IsAtMe:     true,
-			FromWxID:   "group@chatroom",
-			SenderWxID: "member-wxid",
+			MsgId:         123,
+			IsChatRoom:    true,
+			IsAtMe:        true,
+			FromWxID:      "group@chatroom",
+			SenderWxID:    "member-wxid",
+			MessageSource: `<msgsource><atuserlist>robot-wxid,target-wxid,target-wxid</atuserlist></msgsource>`,
 		},
 		MessageContent: "查库存",
 		MessageService: service,
@@ -76,6 +77,20 @@ func TestBusinessRouterStopsHandledMessage(t *testing.T) {
 	}
 	if len(messages.at) != 1 || messages.at[0] != "member-wxid" {
 		t.Fatalf("reply mention = %#v", messages.at)
+	}
+	if got := routeClient.request.MentionedWxIDs; len(got) != 2 || got[0] != "robot-wxid" || got[1] != "target-wxid" {
+		t.Fatalf("mentioned wxids = %#v", got)
+	}
+}
+
+func TestBusinessRouterMentionsGatewayReplyTargets(t *testing.T) {
+	routeClient := &fakeRouteClient{response: BusinessRouteResponse{Handled: true, Reply: "权限已更新", ReplyAtWxIDs: []string{"target-wxid", "member-wxid", "target-wxid"}}}
+	messages := &recordingMessageService{}
+	ctx := businessContext(messages)
+
+	(&BusinessRouterPlugin{client: routeClient}).Run(ctx)
+	if len(messages.at) != 2 || messages.at[0] != "member-wxid" || messages.at[1] != "target-wxid" {
+		t.Fatalf("reply mentions = %#v", messages.at)
 	}
 }
 

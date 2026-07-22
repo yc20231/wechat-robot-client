@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"business-gateway/internal/admin"
+	"business-gateway/internal/audit"
 	"business-gateway/internal/backend"
 	"business-gateway/internal/config"
 	"business-gateway/internal/dedup"
@@ -27,12 +29,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载群绑定失败: %v", err)
 	}
+	admins, err := admin.NewFileStore(cfg.AdminsFile, cfg.OwnerWxIDs)
+	if err != nil {
+		log.Fatalf("加载管理员配置失败: %v", err)
+	}
 	backendClient, err := backend.NewClient(cfg.BackendURL, cfg.BotToken, cfg.BackendTimeout)
 	if err != nil {
 		log.Fatalf("创建后端客户端失败: %v", err)
 	}
 	deduplicator := dedup.NewMemoryCache(cfg.DedupTTL)
-	router := route.NewService(groups, backendClient, deduplicator, cfg.AdminWxIDs, cfg.RequireAtMention)
+	auditLogger := audit.NewFileLogger(cfg.AuditFile)
+	router := route.NewService(groups, backendClient, deduplicator, admins, auditLogger, cfg.RequireAtMention, cfg.ConfirmationTTL)
 	handler := httpapi.NewHandler(cfg, groups, router, deduplicator)
 
 	server := &http.Server{
@@ -55,7 +62,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("business-gateway 监听 %s，已加载 %d 个群绑定", cfg.ListenAddr, len(groups.List()))
+	log.Printf("business-gateway 监听 %s，已加载 %d 个群绑定和 %d 个管理员", cfg.ListenAddr, len(groups.List()), len(admins.List()))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Printf("HTTP 服务异常退出: %v", err)
 		os.Exit(1)

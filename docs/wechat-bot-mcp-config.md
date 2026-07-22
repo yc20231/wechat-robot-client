@@ -14,15 +14,16 @@ MCP 不再是库存、订单等实时业务的主入口。hp0912 内置 AI 负�
 
 ## 0. 实现状态
 
-截至 2026-07-21：
+截至 2026-07-22：
 
 - hp0912 平台、微信登录、内置 AI 已部署并验证。
 - 自定义客户端 AI 文本尾注已部署并验证。
-- `BusinessRouterPlugin` 和 `business-gateway` 的代码、配置示例和自动化测试已完成，待飞牛部署联调。
-- ThinkPHP `/api/bot/health`、`/api/bot/inventory` 和独立 Bot Token 鉴权已经存在，待网关实际连通验证。
+- `BusinessRouterPlugin`、`business-gateway` 基础链路已部署到飞牛，Token、权限、故障闭合、AI 放行和 AI 尾注已经实测。
+- 固定所有者、动态管理员、群内绑定和审计功能已完成代码与自动化测试，待执行本次飞牛升级。
+- ThinkPHP `/api/bot/health`、`/api/bot/inventory` 和独立 Bot Token 鉴权已经连通；`/api/bot/customers/resolve` 已完成代码，待发布到 ThinkPHP。
 - 旧 `wangzhan/bot-mcp` 已停用但暂不删除，只保留作迁移参考。
 
-业务链路完成前不得接入真实客户群。
+管理员和群绑定升级验收完成前不得接入真实客户群。
 
 ## 1. 业务规则
 
@@ -43,12 +44,26 @@ MCP 不再是库存、订单等实时业务的主入口。hp0912 内置 AI 负�
 
 ```text
 群类型 = admin
-发送者 wxid 在 ADMIN_WXIDS 白名单
+发送者 wxid 是全局固定所有者、动态根管理员或动态普通管理员
 ```
 
 只满足其中一个条件也不能跨客户查询。
 
-管理员群不绑定某个 `customer_code`，也不通过聊天命令修改管理员群身份。群绑定由网站后台或受保护的管理 API 完成。
+管理员群不绑定某个 `customer_code`。只有固定所有者可以在目标群内发起并确认绑定、改绑或解绑管理员群；受保护的 HTTP 管理 API 仍可用于维护。
+
+### 全局管理员
+
+权限分为三级：
+
+| 角色 | 持久化 | 权限 |
+|---|---|---|
+| 固定所有者 | `OWNER_WXIDS` 环境变量 | 不可修改或移除；拥有全部管理权限 |
+| 动态根管理员 | `/data/admins.json` | 可添加/移除动态根管理员和普通管理员；可管理客户群绑定 |
+| 动态普通管理员 | `/data/admins.json` | 可在管理员群跨客户查询 |
+
+管理员身份是全局身份，不只针对发出指令的群。移除动态根管理员会先降为动态普通管理员；之后可再移除普通管理员权限。角色和群绑定变更均追加到 `/data/audit.jsonl`。
+
+涉及写操作的聊天指令采用二次确认：同一操作者、同一群、同一操作参数必须在 `CONFIRMATION_TTL_SEC` 内确认，默认 300 秒。待确认状态只保存在内存中，网关重启后必须重新发起。
 
 ### AI
 
@@ -132,6 +147,7 @@ sender_wxid
 message_id
 content
 is_at_me
+mentioned_wxids       MessageSource.atuserlist 中的真实 wxid 列表
 ```
 
 请求使用 `X-Internal-Route-Token`，其值必须与客户端 `BUSINESS_GATEWAY_TOKEN` 一致。
@@ -142,6 +158,7 @@ is_at_me
 handled=true      已处理，客户端发送 reply 并阻止 AI
 handled=false     非业务消息，继续内置 AI
 handled=true + error 业务失败，发送固定错误并阻止 AI
+reply_at_wxids        回复时额外 @ 的真实 wxid 列表
 ```
 
 业务错误不能返回 `handled=false`，否则会让 AI 接管实时业务问题。
@@ -264,6 +281,28 @@ GET /api/bot/inventory
 
 后端仍然必须再次按 `customer_code` 隔离查询，不能完全信任网关传入值。
 
+### 校验客户代号
+
+```text
+GET /api/bot/customers/resolve?customer_code=270
+```
+
+成功响应只返回绑定所需的最少字段：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "exists": true,
+    "customer_code": "270",
+    "customer_name": "示例客户"
+  }
+}
+```
+
+接口先查启用的 `customers` 记录，再兼容仅存在于启用库存历史中的线下客户。客户已明确禁用时返回 `exists=false`，不能因存在历史库存而重新通过校验。
+
 ## 7. 新增业务模块的位置
 
 以订单为例：
@@ -288,7 +327,7 @@ internal/dedup/
 
 ## 8. 管理接口
 
-高风险绑定操作优先放在网站后台。早期临时管理接口必须使用独立的 `ADMIN_TOKEN`：
+受保护的 HTTP 管理接口使用独立的 `ADMIN_TOKEN`：
 
 ```text
 GET    /admin/groups
@@ -297,7 +336,29 @@ PUT    /admin/groups/{group_id}
 DELETE /admin/groups/{group_id}
 ```
 
-不建议保留“在管理员群里绑定当前群”的命令，因为它容易误改管理员群身份。
+群内管理指令如下，所有写操作都需要二次确认：
+
+```text
+管理员列表
+添加/确认添加 @成员 根管理员
+移除/确认移除 @成员 根管理员
+添加/确认添加 @成员 管理员
+移除/确认移除 @成员 管理员
+
+查看群绑定
+绑定客户 <customer_code>
+确认绑定 <customer_code>
+改绑客户 <customer_code>
+确认改绑 <customer_code>
+解绑客户
+确认解绑客户 <customer_code>
+
+绑定/确认绑定管理员群
+改绑/确认改绑管理员群
+解绑/确认解绑管理员群
+```
+
+管理员目标只接受微信消息协议 `MessageSource.atuserlist` 中的真实 wxid。昵称文字和手工输入的 `@名字` 不能成为授权依据。
 
 ## 9. 测试要求
 
@@ -315,6 +376,14 @@ DELETE /admin/groups/{group_id}
 - [x] 非业务消息继续进入 hp0912 内置 AI
 - [x] AI 文本回复带有“本消息由AI生成回复”尾注
 - [x] 机器人自己发送的消息不会再次触发业务
+- [x] 只有真实且唯一的 @ 目标可用于管理员变更
+- [x] 固定所有者不能被修改或移除
+- [x] 动态根管理员可管理动态根管理员和普通管理员
+- [x] 管理员变更全局持久化，网关重启后仍有效
+- [x] 客户群绑定、改绑、解绑和客户代号校验
+- [x] 只有固定所有者可以管理管理员群
+- [x] 同操作者、同群、5 分钟确认窗口和过期拒绝
+- [x] 管理员与群绑定变更写入 JSONL 审计日志
 
 ## 10. 与客户端镜像的关系
 

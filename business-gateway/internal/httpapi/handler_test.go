@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"business-gateway/internal/admin"
 	"business-gateway/internal/backend"
 	"business-gateway/internal/config"
 	"business-gateway/internal/dedup"
@@ -23,6 +24,9 @@ func (fakeBackend) QueryInventory(context.Context, backend.InventoryQuery) (back
 	return backend.Inventory{CustomerCode: "270"}, nil
 }
 func (fakeBackend) Health(context.Context) error { return nil }
+func (fakeBackend) ResolveCustomer(context.Context, string) (backend.Customer, error) {
+	return backend.Customer{Exists: true, Code: "270", Name: "测试客户"}, nil
+}
 
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
@@ -35,7 +39,11 @@ func newTestHandler(t *testing.T) http.Handler {
 	}
 	cache := dedup.NewMemoryCache(time.Hour)
 	cfg := config.Config{InternalRouteToken: "route-secret", WebhookToken: "webhook-secret", AdminToken: "admin-secret"}
-	router := route.NewService(groups, fakeBackend{}, cache, nil, true)
+	admins, err := admin.NewFileStore(filepath.Join(t.TempDir(), "admins.json"), map[string]struct{}{"owner-wxid": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := route.NewService(groups, fakeBackend{}, cache, admins, nil, true, 5*time.Minute)
 	return NewHandler(cfg, groups, router, cache)
 }
 

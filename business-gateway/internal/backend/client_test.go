@@ -42,3 +42,28 @@ func TestQueryInventoryUsesBotContract(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestResolveCustomerUsesBotContract(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/bot/customers/resolve" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("customer_code"); got != "270" {
+			t.Fatalf("customer_code = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"exists":true,"customer_code":"270","customer_name":"测试客户"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "bot-secret", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.ResolveCustomer(context.Background(), "270")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Exists || result.Code != "270" || result.Name != "测试客户" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}

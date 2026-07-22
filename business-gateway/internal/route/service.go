@@ -6,9 +6,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"business-gateway/internal/admin"
+	"business-gateway/internal/audit"
 	"business-gateway/internal/backend"
 	"business-gateway/internal/dedup"
 	"business-gateway/internal/group"
@@ -22,19 +26,21 @@ const (
 var adminInventoryPattern = regexp.MustCompile(`^查\s*([^\s]+)\s*库存(?:\s+(.+))?$`)
 
 type Request struct {
-	RobotWxID  string `json:"robot_wxid"`
-	RobotCode  string `json:"robot_code,omitempty"`
-	GroupID    string `json:"group_id"`
-	SenderWxID string `json:"sender_wxid"`
-	MessageID  int64  `json:"message_id"`
-	Content    string `json:"content"`
-	IsAtMe     bool   `json:"is_at_me"`
+	RobotWxID      string   `json:"robot_wxid"`
+	RobotCode      string   `json:"robot_code,omitempty"`
+	GroupID        string   `json:"group_id"`
+	SenderWxID     string   `json:"sender_wxid"`
+	MessageID      int64    `json:"message_id"`
+	Content        string   `json:"content"`
+	IsAtMe         bool     `json:"is_at_me"`
+	MentionedWxIDs []string `json:"mentioned_wxids,omitempty"`
 }
 
 type Response struct {
-	Handled bool   `json:"handled"`
-	Reply   string `json:"reply,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Handled      bool     `json:"handled"`
+	Reply        string   `json:"reply,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	ReplyAtWxIDs []string `json:"reply_at_wxids,omitempty"`
 }
 
 type command struct {
@@ -48,16 +54,26 @@ type Service struct {
 	groups           group.Store
 	backend          backend.Service
 	dedup            dedup.Cache
-	adminWxIDs       map[string]struct{}
+	admins           admin.Store
+	audit            audit.Logger
+	confirmations    *confirmationStore
+	confirmationTTL  time.Duration
+	managementMu     sync.Mutex
 	requireAtMention bool
 }
 
-func NewService(groups group.Store, backendService backend.Service, cache dedup.Cache, adminWxIDs map[string]struct{}, requireAtMention bool) *Service {
+func NewService(groups group.Store, backendService backend.Service, cache dedup.Cache, admins admin.Store, auditLogger audit.Logger, requireAtMention bool, confirmationTTL time.Duration) *Service {
+	if confirmationTTL <= 0 {
+		confirmationTTL = 5 * time.Minute
+	}
 	return &Service{
 		groups:           groups,
 		backend:          backendService,
 		dedup:            cache,
-		adminWxIDs:       adminWxIDs,
+		admins:           admins,
+		audit:            auditLogger,
+		confirmations:    newConfirmationStore(),
+		confirmationTTL:  confirmationTTL,
 		requireAtMention: requireAtMention,
 	}
 }
@@ -67,8 +83,9 @@ func (s *Service) Route(ctx context.Context, req Request) Response {
 	req.SenderWxID = strings.TrimSpace(req.SenderWxID)
 	req.RobotWxID = strings.TrimSpace(req.RobotWxID)
 	content := stripLeadingMentions(req.Content)
+	management, isManagement := parseManagementCommand(content)
 	cmd, isBusiness := parseCommand(content)
-	if !isBusiness {
+	if !isManagement && !isBusiness {
 		return Response{Handled: false}
 	}
 	if req.GroupID == "" || req.SenderWxID == "" {
@@ -80,17 +97,19 @@ func (s *Service) Route(ctx context.Context, req Request) Response {
 	if s.requireAtMention && !req.IsAtMe {
 		return Response{Handled: false}
 	}
+	if req.MessageID != 0 && s.dedup.Seen(fmt.Sprintf("route:%s:%d", req.RobotWxID, req.MessageID)) {
+		return Response{Handled: true}
+	}
+	if isManagement {
+		return s.handleManagement(ctx, req, management)
+	}
 
 	binding, found := s.groups.Get(req.GroupID)
 	if !found || !binding.Enabled {
 		return businessError("该群尚未配置业务查询，请联系管理员")
 	}
-	if req.MessageID != 0 && s.dedup.Seen(fmt.Sprintf("route:%s:%d", req.RobotWxID, req.MessageID)) {
-		return Response{Handled: true}
-	}
-
 	isAdmin := binding.Type == group.TypeAdmin
-	_, adminAllowed := s.adminWxIDs[req.SenderWxID]
+	adminAllowed := s.admins != nil && s.admins.IsAdmin(req.SenderWxID)
 	if isAdmin && cmd.module != "help" && !adminAllowed {
 		return businessError("当前账号没有管理员业务查询权限")
 	}
