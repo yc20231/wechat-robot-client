@@ -231,7 +231,7 @@ func TestMenuAndHelpAreRoleAwareAndAvailableInUnboundGroups(t *testing.T) {
 	service := newTestService(&fakeBackend{})
 
 	ordinaryMenu := service.Route(context.Background(), baseRequest("unbound@chatroom", "member", "@机器人 菜单", 150))
-	if !ordinaryMenu.Handled || ordinaryMenu.Error != "" || !strings.Contains(ordinaryMenu.Reply, "身份：普通成员") || !strings.Contains(ordinaryMenu.Reply, "当前群：未绑定") {
+	if !ordinaryMenu.Handled || ordinaryMenu.Error != "" || !strings.Contains(ordinaryMenu.Reply, "身份：普通成员") || !strings.Contains(ordinaryMenu.Reply, "当前群：未绑定") || !strings.Contains(ordinaryMenu.Reply, "画一张") || !strings.Contains(ordinaryMenu.Reply, "引用图片") {
 		t.Fatalf("ordinary menu = %+v", ordinaryMenu)
 	}
 	if strings.Contains(ordinaryMenu.Reply, "\n全局管理\n") || strings.Contains(ordinaryMenu.Reply, "管理员群管理（仅固定所有者）") {
@@ -239,7 +239,7 @@ func TestMenuAndHelpAreRoleAwareAndAvailableInUnboundGroups(t *testing.T) {
 	}
 
 	customerHelp := service.Route(context.Background(), baseRequest("customer@chatroom", "member", "帮助", 151))
-	if customerHelp.Error != "" || !strings.Contains(customerHelp.Reply, "客户群库存") || !strings.Contains(customerHelp.Reply, "只能查询当前群绑定客户") {
+	if customerHelp.Error != "" || !strings.Contains(customerHelp.Reply, "客户群库存") || !strings.Contains(customerHelp.Reply, "只能查询当前群绑定客户") || !strings.Contains(customerHelp.Reply, "双图替换") || !strings.Contains(customerHelp.Reply, "5 分钟") {
 		t.Fatalf("customer help = %+v", customerHelp)
 	}
 
