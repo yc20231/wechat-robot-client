@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestDefaultTopicsAndDailySelection(t *testing.T) {
@@ -26,6 +27,40 @@ func TestDefaultTopicsAndDailySelection(t *testing.T) {
 	}
 	if first.Focus == nextDay.Focus {
 		t.Fatal("consecutive dates selected the same topic")
+	}
+}
+
+func TestDefaultTopicsAreConciseActionableReminders(t *testing.T) {
+	topics, err := LoadTopics("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowedPrefixes := []string{"检查", "严禁", "注意", "及时", "确认"}
+	for index, topic := range topics {
+		if strings.HasSuffix(topic.Focus, "风险") {
+			t.Errorf("topic %d focus redundantly ends with risk: %s", index+1, topic.Focus)
+		}
+		if length := utf8.RuneCountInString(topic.Focus); length > 10 {
+			t.Errorf("topic %d focus is too long (%d characters): %s", index+1, length, topic.Focus)
+		}
+		for pointIndex, point := range topic.Points {
+			hasAllowedPrefix := false
+			for _, prefix := range allowedPrefixes {
+				if strings.HasPrefix(point, prefix) {
+					hasAllowedPrefix = true
+					break
+				}
+			}
+			if !hasAllowedPrefix {
+				t.Errorf("topic %d point %d does not start with a reminder word: %s", index+1, pointIndex+1, point)
+			}
+			if length := utf8.RuneCountInString(point); length > 20 {
+				t.Errorf("topic %d point %d is too long (%d characters): %s", index+1, pointIndex+1, length, point)
+			}
+		}
+		if length := utf8.RuneCountInString(topic.Slogan); length > 20 {
+			t.Errorf("topic %d slogan is too long (%d characters): %s", index+1, length, topic.Slogan)
+		}
 	}
 }
 
