@@ -10,6 +10,7 @@ fi
 skill_dir="$1"
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 patch_file="$repo_dir/.deploy/skills/text-to-image-gpt-edit.patch"
+size_patch_file="$repo_dir/.deploy/skills/text-to-image-packy-size.patch"
 upstream_revision="2a7cf121fdb9e05cec8dd1bebc916fff5016b741"
 upstream_base="https://raw.githubusercontent.com/hp0912/wechat-robot-skills/$upstream_revision/skills/text-to-image"
 stage_dir=$(mktemp -d "$repo_dir/.skill-stage.XXXXXX")
@@ -33,6 +34,8 @@ curl -fsSL "$upstream_base/scripts/text_to_image.py" -o "$stage_dir/scripts/text
   cd "$repo_dir"
   git apply --check --directory="$stage_relative" "$patch_file"
   git apply --directory="$stage_relative" "$patch_file"
+  git apply --check --directory="$stage_relative" "$size_patch_file"
+  git apply --directory="$stage_relative" "$size_patch_file"
 )
 python3 -m py_compile "$stage_dir/scripts/text_to_image.py"
 

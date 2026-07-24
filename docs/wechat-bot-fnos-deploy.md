@@ -689,6 +689,8 @@ docker restart client_xiW55bPyM3D4o6s6 >/dev/null
 }
 ```
 
+`OpenAI.size` 可以省略或设为 `auto`。Skill 不会把 `size=auto` 直接发送给中转站：文生图会按用户指定的比例选择兼容尺寸；引用图片编辑未指定比例时，会读取目标 PNG/JPEG 的宽高并自动选择 `1024x1536`、`1536x1024` 或 `1024x1024`。只有明确配置非 `auto` 的 `size` 时才固定使用该尺寸。
+
 该版本支持三种流程：
 
 ```text
@@ -917,6 +919,7 @@ Appid + ":" + NewMsgId
 | 内置 AI 和网关重复回复 | 检查前置插件是否正确停止后续插件 |
 | `activate_skill` 后出现 `unexpected end of JSON input` | 升级客户端；只读 Skill 工具后允许自动重试，执行生图脚本后仍禁止重试 |
 | 引用图片只显示“上传成功”但没有修改结果 | 检查日志是否出现 `Executing tool: execute_skill_script`，并确认中转站支持 `/v1/images/edits` |
+| Packy 返回 `size=auto is not accepted` | 重新安装当前仓库的 `text-to-image` Skill；新版会根据比例或目标图宽高发送明确的兼容尺寸 |
 | 引用机器人生成图时报 `EOF` | 升级客户端和 Skill；新版本会保存生成图的 OSS 地址并优先从该地址下载 |
 | 双图替换提示找不到参考图 | 先发送参考图，再在 5 分钟内引用目标图；两条消息必须来自同一个微信账号 |
 | 图片编辑结果无法再次引用 | 检查自动上传图片和 COS 写入权限，日志应出现 `images上传成功` |
