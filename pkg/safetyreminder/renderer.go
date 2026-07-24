@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	PosterWidth  = 1279
-	PosterHeight = 1706
+	PosterWidth              = 1279
+	PosterHeight             = 1706
+	posterBackgroundVariants = 5
 )
 
 type posterTemplateData struct {
@@ -42,7 +43,7 @@ func renderHTML(content PosterContent) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("读取安全提醒模板失败: %w", err)
 	}
-	backgroundBytes, err := templateassets.Assets.ReadFile("assets/poster-background.png")
+	backgroundBytes, err := templateassets.Assets.ReadFile(backgroundAssetForDate(content.Date))
 	if err != nil {
 		return "", fmt.Errorf("读取安全提醒背景失败: %w", err)
 	}
@@ -53,7 +54,7 @@ func renderHTML(content PosterContent) (string, error) {
 
 	data := posterTemplateData{
 		Background: base64.StdEncoding.EncodeToString(backgroundBytes),
-		Date:       fmt.Sprintf("%d年%d月%d日 %s", content.Date.Year(), content.Date.Month(), content.Date.Day(), chineseWeekdays[content.Date.Weekday()]),
+		Date:       fmt.Sprintf("%d.%02d.%02d %s", content.Date.Year(), content.Date.Month(), content.Date.Day(), chineseWeekdays[content.Date.Weekday()]),
 		Focus:      content.Focus,
 		Points:     content.Points,
 		Slogan:     content.Slogan,
@@ -63,6 +64,14 @@ func renderHTML(content PosterContent) (string, error) {
 		return "", fmt.Errorf("生成安全提醒页面失败: %w", err)
 	}
 	return output.String(), nil
+}
+
+func backgroundAssetForDate(date time.Time) string {
+	variant := (date.YearDay()-1)%posterBackgroundVariants + 1
+	if variant == 1 {
+		return "assets/poster-background.png"
+	}
+	return fmt.Sprintf("assets/poster-background-%d.png", variant)
 }
 
 func capturePoster(ctx context.Context, htmlContent string) ([]byte, error) {

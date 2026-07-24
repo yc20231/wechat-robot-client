@@ -32,24 +32,100 @@
       font-weight: 600;
       letter-spacing: 0;
     }
+    .company-row {
+      position: absolute;
+      top: 469px;
+      left: 210px;
+      width: 858px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      column-gap: 24px;
+    }
+    .company-line {
+      flex: 1;
+      height: 1px;
+      background: #356252;
+    }
+    .company {
+      flex: 0 0 560px;
+      height: 64px;
+      line-height: 64px;
+      text-align: center;
+      white-space: nowrap;
+      font-size: 41px;
+      font-weight: 700;
+      letter-spacing: 0;
+      color: #005331;
+    }
+    .title {
+      top: 539px;
+      left: 115px;
+      width: 1050px;
+      height: 130px;
+      line-height: 130px;
+      padding: 0;
+      font-size: 103px;
+      font-weight: 800;
+      color: #005331;
+    }
+    .date-row {
+      position: absolute;
+      top: 694px;
+      left: 128px;
+      width: 1023px;
+      height: 81px;
+      display: flex;
+      align-items: center;
+      column-gap: 28px;
+    }
+    .date-side {
+      height: 2px;
+      background: #356252;
+    }
+    .date-side-left { flex: 9; }
+    .date-side-right { flex: 11; }
+    .date-stack {
+      flex: 0 0 505px;
+      height: 81px;
+      border-top: 1px solid #afc1ba;
+      border-bottom: 1px solid #afc1ba;
+    }
     .date {
-      top: 714px;
-      height: 66px;
-      line-height: 66px;
-      padding: 0 430px;
-      font-size: 34px;
+      position: static;
+      width: 100%;
+      height: 79px;
+      line-height: 79px;
+      padding: 0 4px;
+      text-align: center;
+      white-space: nowrap;
+      font-size: 57px;
+      font-weight: 700;
+      letter-spacing: 0;
       color: #345d4e;
     }
     .focus {
-      top: 840px;
-      left: 210px;
-      width: 860px;
+      top: 814px;
+      left: 207px;
+      width: 865px;
       height: 106px;
       line-height: 106px;
       padding: 0 48px;
-      font-size: 45px;
+      font-size: 61px;
       font-weight: 700;
       color: #fff;
+      background: #008540;
+      border-radius: 53px;
+      z-index: 2;
+    }
+    .focus-line {
+      position: absolute;
+      top: 865px;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: #008540;
+      z-index: 1;
     }
     .point {
       left: 314px;
@@ -58,19 +134,27 @@
       line-height: 64px;
       padding: 0 8px;
       text-align: left;
-      font-size: 34px;
-      font-weight: 500;
+      font-size: 54px;
+      font-weight: 600;
       color: #163f30;
     }
-    .point-1 { top: 972px; }
-    .point-2 { top: 1068px; }
-    .point-3 { top: 1164px; }
+    .point-1 { top: 966px; }
+    .point-2 { top: 1062px; }
+    .point-3 { top: 1158px; }
+    .footer-bg {
+      position: absolute;
+      top: 1519px;
+      left: 0;
+      width: 100%;
+      height: 187px;
+      background: #008540;
+    }
     .slogan {
       top: 1519px;
       height: 187px;
       line-height: 187px;
       padding: 0 90px;
-      font-size: 38px;
+      font-size: 66px;
       font-weight: 600;
       color: #fff;
     }
@@ -78,11 +162,23 @@
 </head>
 <body>
   <img class="background" src="data:image/png;base64,{{.Background}}" alt="">
-  <div class="dynamic date fit">{{.Date}}</div>
+  <div class="company-row">
+    <span class="company-line"></span>
+    <div class="company fit">福建省阳强塑胶制品有限公司</div>
+    <span class="company-line"></span>
+  </div>
+  <div class="dynamic title fit">安全生产每日风险提醒</div>
+  <div class="date-row">
+    <span class="date-side date-side-left"></span>
+    <div class="date-stack"><div class="date fit">{{.Date}}</div></div>
+    <span class="date-side date-side-right"></span>
+  </div>
+  <div class="focus-line"></div>
   <div class="dynamic focus fit">今日重点：{{.Focus}}</div>
   <div class="dynamic point point-1 fit">{{index .Points 0}}</div>
   <div class="dynamic point point-2 fit">{{index .Points 1}}</div>
   <div class="dynamic point point-3 fit">{{index .Points 2}}</div>
+  <div class="footer-bg"></div>
   <div class="dynamic slogan fit">{{.Slogan}}</div>
   <script>
     window.posterReady = Promise.all([
