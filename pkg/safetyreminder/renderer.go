@@ -67,7 +67,7 @@ func renderHTML(content PosterContent) (string, error) {
 }
 
 func backgroundAssetForDate(date time.Time) string {
-	variant := (date.YearDay()-1)%posterBackgroundVariants + 1
+	variant := cycleIndexForDate(date, posterBackgroundVariants) + 1
 	if variant == 1 {
 		return "assets/poster-background.png"
 	}

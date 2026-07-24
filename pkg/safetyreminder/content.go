@@ -61,11 +61,21 @@ func ContentForDate(date time.Time, topics []Topic) (PosterContent, error) {
 	if len(topics) == 0 {
 		return PosterContent{}, fmt.Errorf("安全提醒主题库不能为空")
 	}
-	topic := topics[(date.YearDay()-1)%len(topics)]
+	topic := topics[cycleIndexForDate(date, len(topics))]
 	return PosterContent{
 		Date:   date,
 		Focus:  topic.Focus,
 		Points: topic.Points,
 		Slogan: topic.Slogan,
 	}, nil
+}
+
+func cycleIndexForDate(date time.Time, cycleLength int) int {
+	utcDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	dayNumber := utcDate.Unix() / int64(24*time.Hour/time.Second)
+	index := int(dayNumber % int64(cycleLength))
+	if index < 0 {
+		index += cycleLength
+	}
+	return index
 }
