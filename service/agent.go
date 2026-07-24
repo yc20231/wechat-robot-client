@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 	"gorm.io/gorm"
@@ -17,6 +20,10 @@ import (
 	"wechat-robot-client/pkg/skills"
 	"wechat-robot-client/vars"
 )
+
+const initialAIStreamRetryDelay = 800 * time.Millisecond
+
+type streamCompletionFunc func() (openai.ChatCompletionMessage, string, error)
 
 type AgentService struct {
 	ctx                  context.Context
@@ -144,7 +151,7 @@ func (s *AgentService) ChatWithTools(
 
 	// 如果没有可用工具，直接调用AI
 	if len(tools) == 0 {
-		msg, _, err := s.streamChatCompletion(client, req)
+		msg, _, err := s.streamChatCompletionWithRetry(client, req, true)
 		return msg, err
 	}
 
@@ -162,9 +169,10 @@ func (s *AgentService) ChatWithTools(
 		req.Messages = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(toolsPrompt)}, req.Messages...)
 	}
 
+	toolsExecuted := false
 	for range vars.MaxToolsIterations {
 		// 调用AI
-		msg, reasoning, err := s.streamChatCompletion(client, req)
+		msg, reasoning, err := s.streamChatCompletionWithRetry(client, req, !toolsExecuted)
 		if err != nil {
 			return openai.ChatCompletionMessage{}, fmt.Errorf("failed to call ai: %w", err)
 		}
@@ -184,6 +192,7 @@ func (s *AgentService) ChatWithTools(
 
 		// 执行所有工具调用
 		for _, tc := range msg.ToolCalls {
+			toolsExecuted = true
 			log.Printf("Executing tool: %s", tc.Function.Name)
 
 			var result string
@@ -229,6 +238,65 @@ func (s *AgentService) ChatWithTools(
 	}
 
 	return openai.ChatCompletionMessage{}, fmt.Errorf("max iterations reached without final answer")
+}
+
+func (s *AgentService) streamChatCompletionWithRetry(
+	client *openai.Client,
+	req openai.ChatCompletionNewParams,
+	allowRetry bool,
+) (openai.ChatCompletionMessage, string, error) {
+	return retryInitialAIStream(s.ctx, allowRetry, initialAIStreamRetryDelay, func() (openai.ChatCompletionMessage, string, error) {
+		return s.streamChatCompletion(client, req)
+	})
+}
+
+func retryInitialAIStream(
+	ctx context.Context,
+	allowRetry bool,
+	retryDelay time.Duration,
+	streamCompletion streamCompletionFunc,
+) (openai.ChatCompletionMessage, string, error) {
+	msg, reasoning, err := streamCompletion()
+	if err == nil || !allowRetry || !isRetryableAIStreamError(err) {
+		return msg, reasoning, err
+	}
+
+	log.Printf("[AI] 首次流式响应异常，%s 后自动重试一次: %v", retryDelay, err)
+	if retryDelay > 0 {
+		timer := time.NewTimer(retryDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return openai.ChatCompletionMessage{}, "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return streamCompletion()
+}
+
+func isRetryableAIStreamError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"unexpected end of json input",
+		"unexpected eof",
+		"connection reset by peer",
+		"server closed idle connection",
+		"broken pipe",
+		"http2: server sent goaway",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // streamChatCompletion 通过流式接口调用 AI 并用 accumulator 汇总完整消息。
