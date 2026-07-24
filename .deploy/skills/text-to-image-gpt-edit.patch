@@ -279,7 +279,7 @@
  # ---------------------------------------------------------------------------
  # Main
  # ---------------------------------------------------------------------------
-@@ -568,13 +674,14 @@
+@@ -568,13 +683,14 @@
  OPENAI_MODELS = {"gpt-image-2"}
  
  
@@ -295,7 +295,7 @@
  
      namespace, unknown = parser.parse_known_args(argv)
      if unknown:
-@@ -586,6 +693,7 @@
+@@ -586,6 +702,7 @@
          "negative_prompt": namespace.negative_prompt,
          "ratio": namespace.ratio,
          "resolution": namespace.resolution,
@@ -303,7 +303,7 @@
      }
  
  
-@@ -609,13 +717,19 @@
+@@ -609,13 +726,19 @@
      negative_prompt = params.get("negative_prompt", "").strip()
      ratio = params.get("ratio", "").strip()
      resolution = params.get("resolution", "").strip()
@@ -324,7 +324,7 @@
      try:
          conn = _mysql_connect()
      except Exception as exc:
-@@ -624,6 +738,16 @@
+@@ -624,6 +747,16 @@
  
      try:
          enabled, settings_json = load_drawing_settings(conn, from_wx_id)
@@ -341,7 +341,7 @@
      except Exception as exc:
          conn.close()
          sys.stdout.write(f"加载绘图配置失败: {exc}\n")
-@@ -640,8 +764,26 @@
+@@ -640,8 +773,26 @@
  
      # Default model
      if not model or model == "none":
@@ -369,7 +369,7 @@
      # Route to correct API
      try:
          image_urls: list[str] = []
-@@ -672,35 +814,51 @@
+@@ -672,35 +823,51 @@
              if not openai_config.get("enabled", False):
                  sys.stdout.write("OpenAI 绘图未开启\n")
                  return 0
@@ -425,5 +425,5 @@
 -        _cleanup_openai_temp_files(image_urls)
 +        _cleanup_temp_files(image_urls + locals().get("downloaded_outputs", []))
  
-    return 0
+     return 0
  
