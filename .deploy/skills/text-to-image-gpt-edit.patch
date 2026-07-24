@@ -230,7 +230,7 @@
              try:
                  path.unlink()
              except OSError:
-@@ -558,6 +631,39 @@
+@@ -558,6 +631,48 @@
      return _openai_images_from_response(response, output_format)
  
  
@@ -249,9 +249,18 @@
 +
 +    client = _openai_client(config)
 +    output_format = _openai_output_format(config)
++    edit_prompt = _openai_prompt(prompt, negative_prompt)
++    if len(image_paths) > 1:
++        edit_prompt = (
++            "输入图片角色：第1张图片是必须保留构图、版式、背景和文字的目标图；"
++            "第2张图片仅用于提供待替换商品、人物或元素的外观参考。"
++            "最终输出必须基于第1张目标图，禁止返回或沿用第2张参考图的构图和背景。"
++            f"\n\n用户编辑要求：{edit_prompt}"
++        )
++
 +    kwargs = {
 +        "model": model or "gpt-image-2",
-+        "prompt": _openai_prompt(prompt, negative_prompt),
++        "prompt": edit_prompt,
 +        "n": _coerce_int(config.get("n"), 1, 1, 10),
 +        "size": _openai_size(config, ratio, resolution),
 +        "quality": str(config.get("quality", "auto") or "auto"),
@@ -416,6 +425,5 @@
 -        _cleanup_openai_temp_files(image_urls)
 +        _cleanup_temp_files(image_urls + locals().get("downloaded_outputs", []))
  
-     return 0
+    return 0
  
-
