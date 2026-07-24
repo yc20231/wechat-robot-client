@@ -248,7 +248,7 @@ func (p *BusinessRouterPlugin) Run(ctx *plugin.MessageContext) {
 	if !response.Handled {
 		return
 	}
-	reply := strings.TrimSpace(response.Reply)
+	reply := response.Reply
 	if strings.TrimSpace(response.Error) != "" {
 		reply = strings.TrimSpace(response.Error)
 	}

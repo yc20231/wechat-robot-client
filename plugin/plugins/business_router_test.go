@@ -83,6 +83,17 @@ func TestBusinessRouterStopsHandledMessage(t *testing.T) {
 	}
 }
 
+func TestBusinessRouterPreservesInventoryLeadingNewline(t *testing.T) {
+	routeClient := &fakeRouteClient{response: BusinessRouteResponse{Handled: true, Reply: "\n    056 库存\n#2130晶包    2件"}}
+	messages := &recordingMessageService{}
+	ctx := businessContext(messages)
+
+	(&BusinessRouterPlugin{client: routeClient}).Run(ctx)
+	if messages.content != routeClient.response.Reply {
+		t.Fatalf("reply whitespace changed: got %q, want %q", messages.content, routeClient.response.Reply)
+	}
+}
+
 func TestBusinessRouterMentionsGatewayReplyTargets(t *testing.T) {
 	routeClient := &fakeRouteClient{response: BusinessRouteResponse{Handled: true, Reply: "权限已更新", ReplyAtWxIDs: []string{"target-wxid", "member-wxid", "target-wxid"}}}
 	messages := &recordingMessageService{}

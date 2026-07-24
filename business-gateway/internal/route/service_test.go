@@ -155,6 +155,30 @@ func TestCustomerInventoryAlwaysUsesBoundCustomer(t *testing.T) {
 	}
 }
 
+func TestRenderInventoryUsesCompactWechatLayout(t *testing.T) {
+	inventory := backend.Inventory{
+		CustomerCode: "056",
+		CustomerName: "056",
+		Summary: backend.InventorySummary{
+			Count:          4,
+			TotalCartonQty: 10,
+			TotalWeightJin: 301,
+		},
+		Items: []backend.InventoryItem{
+			{ProductCode: "2130晶包", ProductName: "小花白印红黑", CartonQty: 2},
+			{ProductCode: "25晶晶", ProductName: "小花白印红兰", CartonQty: 3},
+			{ProductCode: "26红毛", ProductName: "光乳白印红兰双色", CartonQty: 1},
+			{ProductCode: "3030晶包", ProductName: "小花白印红黑", CartonQty: 4},
+		},
+	}
+
+	got := renderInventory(inventory)
+	want := "\n    056 库存\n#2130晶包    2件\n#25晶晶      3件\n#26红毛      1件\n#3030晶包    4件\n\n共计4款，合计10件"
+	if got != want {
+		t.Fatalf("inventory reply:\n%q\nwant:\n%q", got, want)
+	}
+}
+
 func TestCustomerCannotUseAdminInventorySyntax(t *testing.T) {
 	api := &fakeBackend{}
 	response := newTestService(api).Route(context.Background(), baseRequest("customer@chatroom", "member", "查 300 库存", 2))

@@ -221,37 +221,41 @@ func renderInventory(inventory backend.Inventory) string {
 	if name == "" {
 		name = inventory.CustomerCode
 	}
+	type inventoryLine struct {
+		label string
+		qty   float64
+	}
+	lines := make([]inventoryLine, 0, len(inventory.Items))
+	maxLabelWidth := 0
+	for _, item := range inventory.Items {
+		label := "#" + firstNonEmpty(item.ProductCode, item.ProductName, "未命名货品")
+		lines = append(lines, inventoryLine{label: label, qty: item.CartonQty})
+		maxLabelWidth = max(maxLabelWidth, textDisplayWidth(label))
+	}
+
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "%s 库存：%d 条，合计 %s 箱 / %s 斤", name, inventory.Summary.Count, formatNumber(inventory.Summary.TotalCartonQty), formatNumber(inventory.Summary.TotalWeightJin))
-	if len(inventory.Items) == 0 {
+	fmt.Fprintf(&builder, "\n    %s 库存", name)
+	for _, line := range lines {
+		padding := maxLabelWidth - textDisplayWidth(line.label) + 4
+		fmt.Fprintf(&builder, "\n%s%s%s件", line.label, strings.Repeat(" ", padding), formatNumber(line.qty))
+	}
+	if len(lines) == 0 {
 		builder.WriteString("\n未查询到匹配的库存记录")
-		return builder.String()
 	}
-	for index, item := range inventory.Items {
-		fmt.Fprintf(&builder, "\n%d. %s", index+1, firstNonEmpty(item.ProductCode, item.ProductName, "未命名货品"))
-		details := compact([]string{item.ProductName, item.Color, item.PatternDesc, item.Specification})
-		if len(details) > 0 {
-			builder.WriteString(" | " + strings.Join(details, " / "))
-		}
-		fmt.Fprintf(&builder, " | %s 箱", formatNumber(item.CartonQty))
-		if item.UnitQty != 0 {
-			fmt.Fprintf(&builder, "，%s %s", formatNumber(item.UnitQty), firstNonEmpty(item.Unit, "件"))
-		}
-		if item.TotalWeightJin != 0 {
-			fmt.Fprintf(&builder, "，%s 斤", formatNumber(item.TotalWeightJin))
-		}
-	}
+	fmt.Fprintf(&builder, "\n\n共计%d款，合计%s件", inventory.Summary.Count, formatNumber(inventory.Summary.TotalCartonQty))
 	return builder.String()
 }
 
-func compact(values []string) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			result = append(result, value)
+func textDisplayWidth(value string) int {
+	width := 0
+	for _, char := range value {
+		if char <= unicode.MaxASCII {
+			width++
+		} else {
+			width += 2
 		}
 	}
-	return result
+	return width
 }
 
 func firstNonEmpty(values ...string) string {
