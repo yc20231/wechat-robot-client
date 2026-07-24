@@ -169,10 +169,10 @@ func (s *AgentService) ChatWithTools(
 		req.Messages = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(toolsPrompt)}, req.Messages...)
 	}
 
-	toolsExecuted := false
+	retryBlocked := false
 	for range vars.MaxToolsIterations {
 		// 调用AI
-		msg, reasoning, err := s.streamChatCompletionWithRetry(client, req, !toolsExecuted)
+		msg, reasoning, err := s.streamChatCompletionWithRetry(client, req, !retryBlocked)
 		if err != nil {
 			return openai.ChatCompletionMessage{}, fmt.Errorf("failed to call ai: %w", err)
 		}
@@ -192,7 +192,9 @@ func (s *AgentService) ChatWithTools(
 
 		// 执行所有工具调用
 		for _, tc := range msg.ToolCalls {
-			toolsExecuted = true
+			if toolBlocksAIStreamRetry(tc.Function.Name) {
+				retryBlocked = true
+			}
 			log.Printf("Executing tool: %s", tc.Function.Name)
 
 			var result string
@@ -238,6 +240,10 @@ func (s *AgentService) ChatWithTools(
 	}
 
 	return openai.ChatCompletionMessage{}, fmt.Errorf("max iterations reached without final answer")
+}
+
+func toolBlocksAIStreamRetry(toolName string) bool {
+	return toolName != skills.ToolNameActivate && toolName != skills.ToolNameReadResource
 }
 
 func (s *AgentService) streamChatCompletionWithRetry(

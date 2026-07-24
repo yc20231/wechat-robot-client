@@ -34,6 +34,9 @@ func (a *AttachDownloadService) DownloadImage(messageID int64) ([]byte, string, 
 	if message.Type != model.MsgTypeImage {
 		return nil, "", "", errors.New("消息类型错误")
 	}
+	if message.AttachmentUrl != "" {
+		return NewOSSSettingService(a.ctx).downloadFromUrl(message.AttachmentUrl, maxFileSize)
+	}
 	return vars.RobotRuntime.DownloadImage(*message)
 }
 

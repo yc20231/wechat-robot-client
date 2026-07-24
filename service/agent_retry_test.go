@@ -32,7 +32,7 @@ func TestRetryInitialAIStreamRetriesTransientFailureOnce(t *testing.T) {
 	}
 }
 
-func TestRetryInitialAIStreamDoesNotRetryAfterToolsExecuted(t *testing.T) {
+func TestRetryInitialAIStreamDoesNotRetryWhenBlocked(t *testing.T) {
 	attempts := 0
 	wantErr := fmt.Errorf("stream error: %w", io.ErrUnexpectedEOF)
 
@@ -81,6 +81,28 @@ func TestIsRetryableAIStreamError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isRetryableAIStreamError(tt.err); got != tt.want {
 				t.Fatalf("isRetryableAIStreamError() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToolBlocksAIStreamRetry(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		want     bool
+	}{
+		{name: "activate skill", toolName: "activate_skill", want: false},
+		{name: "read skill resource", toolName: "read_skill_resource", want: false},
+		{name: "execute skill script", toolName: "execute_skill_script", want: true},
+		{name: "internal action", toolName: "send_local_image", want: true},
+		{name: "mcp action", toolName: "external_action", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toolBlocksAIStreamRetry(tt.toolName); got != tt.want {
+				t.Fatalf("toolBlocksAIStreamRetry(%q) = %t, want %t", tt.toolName, got, tt.want)
 			}
 		})
 	}

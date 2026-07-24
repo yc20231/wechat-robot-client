@@ -213,7 +213,7 @@ func (m *Message) SendImageMessageByRemoteURL(c *gin.Context) {
 
 func (m *Message) SendImageMessageByLocalPath(c *gin.Context) {
 	m.sendLocalFileMessage(c, func(messageService *service.MessageService, req dto.SendLocalFileMessageRequest) error {
-		return messageService.SendImageMessageByLocalPath(req.ToWxid, req.FilePath)
+		return messageService.SendImageMessageByLocalPath(req.ToWxid, req.FilePath, req.ImageURL)
 	})
 }
 

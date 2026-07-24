@@ -30,6 +30,7 @@ import (
 	"wechat-robot-client/model"
 	"wechat-robot-client/pkg/robot"
 	"wechat-robot-client/repository"
+	"wechat-robot-client/utils"
 	"wechat-robot-client/vars"
 )
 
@@ -1168,7 +1169,7 @@ func (s *MessageService) SendImageMessageStream(ctx context.Context, req dto.Sen
 	return &m, nil
 }
 
-func (s *MessageService) SendImageMessageByLocalPath(toWxID string, imagePath string) error {
+func (s *MessageService) SendImageMessageByLocalPath(toWxID, imagePath, imageURL string) error {
 	_, _, err := s.ValidateLocalFileForSend(imagePath, map[string]bool{
 		".jpg":  true,
 		".jpeg": true,
@@ -1181,19 +1182,54 @@ func (s *MessageService) SendImageMessageByLocalPath(toWxID string, imagePath st
 	}
 
 	clientImgId := fmt.Sprintf("%v_%v", vars.RobotRuntime.WxID, time.Now().UnixNano())
-	return s.StreamLocalFileChunks(imagePath, vars.UploadImageChunkSize, func(chunkIndex, totalChunks, totalSize int64, chunkReader io.Reader, fileHeader *multipart.FileHeader) error {
-		_, err := s.SendImageMessageStream(s.ctx, dto.SendImageMessageRequest{
+	var sentMessage *model.Message
+	err = s.StreamLocalFileChunks(imagePath, vars.UploadImageChunkSize, func(chunkIndex, totalChunks, totalSize int64, chunkReader io.Reader, fileHeader *multipart.FileHeader) error {
+		message, err := s.SendImageMessageStream(s.ctx, dto.SendImageMessageRequest{
 			ToWxid:      toWxID,
 			ClientImgId: clientImgId,
 			FileSize:    totalSize,
 			ChunkIndex:  chunkIndex,
 			TotalChunks: totalChunks,
+			ImageURL:    imageURL,
 		}, chunkReader, fileHeader)
 		if err != nil {
 			return fmt.Errorf("发送图片分片失败 (chunk %d/%d): %w", chunkIndex+1, totalChunks, err)
 		}
+		if message != nil {
+			sentMessage = message
+		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if sentMessage != nil {
+		s.persistSentAIImage(sentMessage, imagePath)
+	}
+	return nil
+}
+
+func (s *MessageService) persistSentAIImage(message *model.Message, imagePath string) {
+	settingsService := NewOSSSettingService(s.ctx)
+	settings, err := settingsService.GetOSSSettingService()
+	if err != nil {
+		log.Printf("读取AI图片OSS设置失败: %v", err)
+		return
+	}
+	if settings.AutoUploadImage == nil || !*settings.AutoUploadImage || settings.OSSProvider == "" {
+		return
+	}
+
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		log.Printf("读取已发送AI图片失败: %v", err)
+		return
+	}
+	extension := strings.ToLower(filepath.Ext(imagePath))
+	contentType := utils.MimeTypeByExtension(extension)
+	if err := settingsService.UploadDownloadedMediaToOSS(settings, message, data, contentType, extension, "images"); err != nil {
+		log.Printf("已发送AI图片持久化到OSS失败: %v", err)
+	}
 }
 
 func (s *MessageService) MsgSendVideo(toWxID string, video io.Reader, videoExt string) error {

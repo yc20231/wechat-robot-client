@@ -38,6 +38,10 @@ func (t *SendLocalImageTool) GetOpenAITool(robotCtx *robotctx.RobotContext) *ope
 					"type":        "string",
 					"description": "本地图片的绝对路径",
 				},
+				"image_url": map[string]string{
+					"type":        "string",
+					"description": "图片的可长期访问来源地址（可选）",
+				},
 			},
 			"required": []string{"image_path"},
 		},
@@ -52,6 +56,7 @@ func (t *SendLocalImageTool) BuildSystemPrompt(ctx context.Context, robotCtx *ro
 func (t *SendLocalImageTool) ExecuteToolCall(ctx context.Context, robotCtx *robotctx.RobotContext, toolCall openai.ChatCompletionMessageToolCallUnion) (string, bool, error) {
 	var args struct {
 		ImagePath string `json:"image_path"`
+		ImageURL  string `json:"image_url"`
 	}
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return "", false, fmt.Errorf("解析参数失败: %w", err)
@@ -69,6 +74,7 @@ func (t *SendLocalImageTool) ExecuteToolCall(ctx context.Context, robotCtx *robo
 		SetBody(map[string]string{
 			"to_wxid":    robotCtx.FromWxID,
 			"image_path": args.ImagePath,
+			"image_url":  args.ImageURL,
 		}).
 		SetResult(&result).
 		Post(fmt.Sprintf("http://127.0.0.1:%s/api/v1/robot/message/send/image/local", vars.WechatClientPort))

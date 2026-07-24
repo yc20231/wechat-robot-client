@@ -18,7 +18,7 @@ type MessageServiceIface interface {
 	SendLongTextMessage(toWxID string, longText string) error
 	SendAppMessage(toWxID string, appMsgType int, appMsgXml string) error
 	MsgUploadImg(toWxID string, image io.Reader) (*model.Message, error)
-	SendImageMessageByLocalPath(toWxID string, imagePath string) error
+	SendImageMessageByLocalPath(toWxID, imagePath, imageURL string) error
 	SendImageMessageByRemoteURL(toWxID string, imageURL string) error
 	SendVideoMessageByLocalPath(toWxID string, videoPath string) error
 	SendVideoMessageByRemoteURL(toWxID string, videoURL string) error

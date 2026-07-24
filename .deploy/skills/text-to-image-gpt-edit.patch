@@ -1,0 +1,421 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,13 +1,13 @@
+ ---
+ name: text-to-image
+-description: "AI绘图工具，当用户想通过文本生成图像时，可以调用该工具。根据用户输入内容提取画图提示词，选择合适的模型进行绘图，返回生成的图片。"
++description: "AI图片生成与编辑工具。用于根据文字生成图片、修改用户引用的图片、继续修改机器人生成的图片，或使用用户刚发送的参考图替换引用目标图中的商品、人物和局部元素。"
+ ---
+ 
+ # Text To Image Skill
+ 
+ ## 描述
+ 
+-这是一个 AI 文生图技能，当用户想通过文本描述生成图像时触发。支持多个绘图模型：即梦（JiMeng）、豆包（DouBao）、造相（Z-Image）、OpenAI GPT Image。
++这是一个 AI 图片生成与编辑技能。没有引用图片时执行文生图；引用图片时把引用图作为目标图执行图片编辑；用户明确要求使用刚发送的图片作为参考时，执行双图编辑。
+ 
+ 从数据库中读取绘图配置（API 密钥、Base URL 等），根据用户选择的模型调用对应的绘图 API，返回生成的图片 URL。
+ 
+@@ -19,6 +19,8 @@
+ - 用户说「画一张……」「生成一张……的图片」「帮我画……」
+ - 用户提到「文生图」「AI绘图」「AI画图」
+ - 用户描述了想要生成的图片内容
++- 用户引用图片并要求修改颜色、背景、文字、商品、人物或局部元素
++- 用户要求用刚发送的参考图替换引用目标图中的内容
+ 
+ ## 参数说明（JSON Schema）
+ 
+@@ -66,6 +68,11 @@
+       "type": "string",
+       "description": "图像的分辨率，可选，默认2k。",
+       "default": "2k"
++    },
++    "use_latest_reference": {
++      "type": "boolean",
++      "description": "当用户明确要求使用刚发送的另一张图片作为参考或替换素材时设为 true。",
++      "default": false
+     }
+   },
+   "required": ["prompt"],
+@@ -80,6 +87,7 @@
+ - `--negative_prompt <反向提示词>` 可选
+ - `--ratio <宽高比>` 可选
+ - `--resolution <分辨率>` 可选
++- `--use-latest-reference` 可选；使用同一群、同一用户在5分钟内最近发送的另一张图片作为第二张参考图
+ 
+ ## 依赖安装
+ 
+@@ -88,12 +96,16 @@
+ 
+ ## 执行步骤
+ 
+-1. 当用户想通过文本描述生成图像时触发该技能。
+-2. 从用户输入中提取 prompt（画图提示词），不对提示词做总结或修改。可选提取 model、negative_prompt、ratio、resolution 参数。
+-3. 将参数组装为 shell 风格命令行参数，在仓库根目录下执行本地脚本，例如：`python3 scripts/text_to_image.py --prompt '一只可爱的猫咪在花园里玩耍' --model jimeng-5.0`。
+-4. 脚本生成图片后会自动调用客户端接口 `POST http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/image/url` 将图片发送给用户，成功时输出「图片发送成功」。
++1. 从用户输入中原样提取图片生成或修改要求，不要擅自总结或省略“保持不变”的条件。
++2. 用户没有明确指定模型时必须传 `--model none`，由后台 `default_model` 决定；不要根据题材切换服务商。
++3. 用户引用一张图片并要求修改时，直接执行脚本。脚本会通过 `ROBOT_REF_MESSAGE_ID` 自动读取目标图片并调用 GPT 图片编辑接口。
++4. 用户明确说“用刚才发的图片”“用上一张参考图”“把我发的商品替换进去”等双图要求时，增加 `--use-latest-reference`。脚本会把引用图作为目标图，把同一用户5分钟内最近发送的另一张图片作为参考图。
++5. 没有引用图片时执行普通文生图。例如：`python3 scripts/text_to_image.py --prompt '一只可爱的猫咪在花园里玩耍' --model none`。
++6. 单图编辑示例：`python3 scripts/text_to_image.py --prompt '将红色打火机改成黑色，其他内容保持不变' --model none`。
++7. 双图替换示例：`python3 scripts/text_to_image.py --prompt '用参考图中的商品替换目标图里的打火机，保持版式和文字不变' --model none --use-latest-reference`。
++8. 脚本会直接把结果发送到微信并持久化图片地址，不要再发送额外文字或重复图片。
+ 
+ ## 回复要求
+ 
+-- 成功时，脚本输出「图片发送成功」，表示图片已通过客户端接口直接发送，无需 AI 智能体再做额外处理。
++- 成功时，脚本输出 `ended`，表示图片已直接发送，无需 AI 智能体再回复。
+ - 失败时，返回具体的失败信息。
+--- a/scripts/text_to_image.py
++++ b/scripts/text_to_image.py
+@@ -4,6 +4,7 @@
+ 
+ import argparse
+ import base64
++from contextlib import ExitStack
+ import json
+ import mimetypes
+ import os
+@@ -109,6 +110,45 @@
+     return dict(zip(columns, row))
+ 
+ 
++def _image_message_exists(conn, message_id: int) -> bool:
++    if message_id <= 0:
++        return False
++    row = _query_one(
++        conn,
++        "SELECT id FROM messages WHERE id = %s AND type = 3 LIMIT 1",
++        (message_id,),
++    )
++    return row is not None
++
++
++def _find_recent_reference_image(
++    conn,
++    from_wx_id: str,
++    sender_wx_id: str,
++    current_message_id: int,
++    target_message_id: int,
++) -> int:
++    if not sender_wx_id or current_message_id <= 0:
++        return 0
++    row = _query_one(
++        conn,
++        """
++        SELECT id
++        FROM messages
++        WHERE from_wxid = %s
++          AND sender_wxid = %s
++          AND type = 3
++          AND id < %s
++          AND id <> %s
++          AND created_at >= UNIX_TIMESTAMP() - 300
++        ORDER BY id DESC
++        LIMIT 1
++        """,
++        (from_wx_id, sender_wx_id, current_message_id, target_message_id),
++    )
++    return int(row["id"]) if row else 0
++
++
+ # ---------------------------------------------------------------------------
+ # Settings resolution (mirrors the Go service logic)
+ # ---------------------------------------------------------------------------
+@@ -172,8 +212,36 @@
+     req = urllib.request.Request(url, headers=headers, method="GET")
+     with urllib.request.urlopen(req, timeout=timeout) as resp:
+         return json.loads(resp.read().decode("utf-8"))
++
++
++def _download_image(url: str, prefix: str) -> str:
++    req = urllib.request.Request(
++        url,
++        headers={"User-Agent": "wechat-robot/text-to-image"},
++        method="GET",
++    )
++    with urllib.request.urlopen(req, timeout=60) as resp:
++        content_type = resp.headers.get_content_type()
++        data = resp.read(50 * 1024 * 1024 + 1)
++    if not data:
++        raise RuntimeError("下载图片返回空内容")
++    if len(data) > 50 * 1024 * 1024:
++        raise RuntimeError("图片大小超过50MB")
++
++    suffix = _extension_from_mime(content_type)
++    with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, delete=False) as temp_file:
++        temp_file.write(data)
++        return temp_file.name
+ 
+ 
++def _download_message_image(client_port: str, message_id: int) -> str:
++    query = urllib.parse.urlencode({"message_id": str(message_id)})
++    return _download_image(
++        f"http://127.0.0.1:{client_port}/api/v1/robot/chat/image/download?{query}",
++        "wechat-input-image-",
++    )
++
++
+ def _coerce_int(value, default: int, minimum: int, maximum: int) -> int:
+     try:
+         parsed = int(value)
+@@ -341,7 +409,7 @@
+             if url:
+                 outputs.append(_rewrite_openai_image_url(str(url)))
+     except Exception:
+-        _cleanup_openai_temp_files(outputs)
++        _cleanup_temp_files(outputs)
+         raise
+     return outputs
+ 
+@@ -350,33 +418,38 @@
+     return urllib.parse.urlparse(value).scheme in {"http", "https"}
+ 
+ 
+-def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[str]) -> None:
+-    remote_urls = [value for value in image_outputs if value and _is_remote_image_url(value)]
+-    local_paths = [value for value in image_outputs if value and not _is_remote_image_url(value)]
++def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[str]) -> list[str]:
++    downloaded_paths: list[str] = []
++    try:
++        for value in image_outputs:
++            if not value:
++                continue
++            source_url = value if _is_remote_image_url(value) else ""
++            file_path = value
++            if source_url:
++                file_path = _download_image(source_url, "wechat-output-image-")
++                downloaded_paths.append(file_path)
+ 
+-    if remote_urls:
+-        send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/url"
+-        send_body = {
+-            "to_wxid": from_wx_id,
+-            "image_urls": remote_urls,
+-        }
+-        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
+-        _debug_response("send image url response", response)
+-
+-    for file_path in local_paths:
+-        send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/local"
+-        send_body = {
+-            "to_wxid": from_wx_id,
+-            "file_path": file_path,
+-        }
+-        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
+-        _debug_response("send image local response", response)
++            send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/local"
++            send_body = {
++                "to_wxid": from_wx_id,
++                "file_path": file_path,
++                "image_url": source_url,
++            }
++            response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
++            _debug_response("send image local response", response)
++            if response.get("code") != 200:
++                raise RuntimeError(response.get("message") or "客户端发送图片失败")
++    except Exception:
++        _cleanup_temp_files(downloaded_paths)
++        raise
++    return downloaded_paths
+ 
+ 
+-def _cleanup_openai_temp_files(image_outputs: list[str]) -> None:
++def _cleanup_temp_files(image_outputs: list[str]) -> None:
+     for value in image_outputs:
+         path = Path(value)
+-        if path.name.startswith("wechat-openai-image-") and path.is_file():
++        if path.name.startswith(("wechat-openai-image-", "wechat-input-image-", "wechat-output-image-")) and path.is_file():
+             try:
+                 path.unlink()
+             except OSError:
+@@ -558,6 +631,39 @@
+     return _openai_images_from_response(response, output_format)
+ 
+ 
++def call_openai_edit(
++    config: dict,
++    prompt: str,
++    model: str,
++    negative_prompt: str,
++    ratio: str,
++    resolution: str,
++    image_paths: list[str],
++) -> list[str]:
++    """Edit one image or compose multiple reference images with GPT Image."""
++    if not image_paths:
++        raise RuntimeError("图片编辑缺少输入图片")
++
++    client = _openai_client(config)
++    output_format = _openai_output_format(config)
++    kwargs = {
++        "model": model or "gpt-image-2",
++        "prompt": _openai_prompt(prompt, negative_prompt),
++        "n": _coerce_int(config.get("n"), 1, 1, 10),
++        "size": _openai_size(config, ratio, resolution),
++        "quality": str(config.get("quality", "auto") or "auto"),
++        "output_format": output_format,
++    }
++
++    with ExitStack() as stack:
++        handles = [stack.enter_context(open(path, "rb")) for path in image_paths]
++        kwargs["image"] = handles[0] if len(handles) == 1 else handles
++        response = client.images.edit(**kwargs)
++
++    _debug_response("openai images.edit response", response)
++    return _openai_images_from_response(response, output_format)
++
++
+ # ---------------------------------------------------------------------------
+ # Main
+ # ---------------------------------------------------------------------------
+@@ -568,13 +674,14 @@
+ OPENAI_MODELS = {"gpt-image-2"}
+ 
+ 
+-def _parse_cli_params(argv: list[str]) -> dict[str, str]:
++def _parse_cli_params(argv: list[str]) -> dict[str, object]:
+     parser = argparse.ArgumentParser(add_help=False)
+     parser.add_argument("--prompt", default="")
+     parser.add_argument("--model", default="")
+     parser.add_argument("--negative_prompt", default="")
+     parser.add_argument("--ratio", default="")
+     parser.add_argument("--resolution", default="")
++    parser.add_argument("--use-latest-reference", action="store_true")
+ 
+     namespace, unknown = parser.parse_known_args(argv)
+     if unknown:
+@@ -586,6 +693,7 @@
+         "negative_prompt": namespace.negative_prompt,
+         "ratio": namespace.ratio,
+         "resolution": namespace.resolution,
++        "use_latest_reference": namespace.use_latest_reference,
+     }
+ 
+ 
+@@ -609,13 +717,19 @@
+     negative_prompt = params.get("negative_prompt", "").strip()
+     ratio = params.get("ratio", "").strip()
+     resolution = params.get("resolution", "").strip()
++    use_latest_reference = bool(params.get("use_latest_reference"))
+ 
+     from_wx_id = os.environ.get("ROBOT_FROM_WX_ID", "").strip()
+     if not from_wx_id:
+         sys.stdout.write("环境变量 ROBOT_FROM_WX_ID 未配置\n")
+         return 1
+ 
+-    # Connect to DB and load settings
++    client_port = os.environ.get("ROBOT_WECHAT_CLIENT_PORT", "").strip()
++    sender_wx_id = os.environ.get("ROBOT_SENDER_WX_ID", "").strip()
++    current_message_id = _coerce_int(os.environ.get("ROBOT_MESSAGE_ID"), 0, 0, 2**63 - 1)
++    quoted_message_id = _coerce_int(os.environ.get("ROBOT_REF_MESSAGE_ID"), 0, 0, 2**63 - 1)
++
++    # Connect to DB, load settings, and resolve quoted/reference images.
+     try:
+         conn = _mysql_connect()
+     except Exception as exc:
+@@ -624,6 +738,16 @@
+ 
+     try:
+         enabled, settings_json = load_drawing_settings(conn, from_wx_id)
++        target_message_id = quoted_message_id if _image_message_exists(conn, quoted_message_id) else 0
++        reference_message_id = 0
++        if target_message_id and use_latest_reference:
++            reference_message_id = _find_recent_reference_image(
++                conn,
++                from_wx_id,
++                sender_wx_id,
++                current_message_id,
++                target_message_id,
++            )
+     except Exception as exc:
+         conn.close()
+         sys.stdout.write(f"加载绘图配置失败: {exc}\n")
+@@ -640,8 +764,26 @@
+ 
+     # Default model
+     if not model or model == "none":
+-        model = "jimeng-5.0"
++        model = str(settings_json.get("default_model", "gpt-image-2") or "gpt-image-2").strip()
+ 
++    input_image_paths: list[str] = []
++    if target_message_id:
++        if not client_port:
++            sys.stdout.write("环境变量 ROBOT_WECHAT_CLIENT_PORT 未配置\n")
++            return 1
++        try:
++            input_image_paths.append(_download_message_image(client_port, target_message_id))
++            if use_latest_reference:
++                if reference_message_id <= 0:
++                    _cleanup_temp_files(input_image_paths)
++                    sys.stdout.write("未找到同一发送者5分钟内发送的参考图片\n")
++                    return 1
++                input_image_paths.append(_download_message_image(client_port, reference_message_id))
++        except Exception as exc:
++            _cleanup_temp_files(input_image_paths)
++            sys.stdout.write(f"读取图片编辑素材失败: {exc}\n")
++            return 1
++
+     # Route to correct API
+     try:
+         image_urls: list[str] = []
+@@ -672,35 +814,51 @@
+             if not openai_config.get("enabled", False):
+                 sys.stdout.write("OpenAI 绘图未开启\n")
+                 return 0
+-            image_urls = call_openai(openai_config, prompt, model, negative_prompt, ratio, resolution)
++            if input_image_paths:
++                image_urls = call_openai_edit(
++                    openai_config,
++                    prompt,
++                    model,
++                    negative_prompt,
++                    ratio,
++                    resolution,
++                    input_image_paths,
++                )
++            else:
++                image_urls = call_openai(openai_config, prompt, model, negative_prompt, ratio, resolution)
+ 
+         else:
+             sys.stdout.write("不支持的 AI 图像模型\n")
+             return 1
+ 
+     except Exception as exc:
++        _cleanup_temp_files(input_image_paths)
+         sys.stdout.write(f"调用绘图接口失败: {exc}\n")
+         return 1
++    finally:
++        _cleanup_temp_files(input_image_paths)
+ 
+     if not image_urls:
+         sys.stdout.write("未生成任何图像\n")
+         return 1
+ 
++    output_count = _coerce_int(settings_json.get("output_count"), 1, 1, len(image_urls))
++    image_urls = image_urls[:output_count]
++
+     # 通过客户端接口发送图片
+-    client_port = os.environ.get("ROBOT_WECHAT_CLIENT_PORT", "").strip()
+     if not client_port:
+-        _cleanup_openai_temp_files(image_urls)
++        _cleanup_temp_files(image_urls)
+         sys.stdout.write("环境变量 ROBOT_WECHAT_CLIENT_PORT 未配置\n")
+         return 1
+ 
+     try:
+-        _send_image_outputs(client_port, from_wx_id, image_urls)
+-        sys.stdout.write("图片发送成功\n")
++        downloaded_outputs = _send_image_outputs(client_port, from_wx_id, image_urls)
++        sys.stdout.write("ended")
+     except Exception as exc:
+         sys.stdout.write(f"发送图片失败: {exc}\n")
+         return 1
+     finally:
+-        _cleanup_openai_temp_files(image_urls)
++        _cleanup_temp_files(image_urls + locals().get("downloaded_outputs", []))
+ 
+     return 0
+ 
+

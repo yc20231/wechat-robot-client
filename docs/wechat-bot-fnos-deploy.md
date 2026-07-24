@@ -490,6 +490,8 @@ handled=false -> 继续 hp0912 内置 AI
 | 修改网关命令、权限、菜单或业务路由逻辑 | 只重新编译并切换 `business-gateway` 镜像 |
 | 修改 ThinkPHP API 或网站业务数据逻辑 | 只发布网站后端；接口契约未变时无需更新飞牛镜像 |
 | 修改消息解析、真实 @ wxid 提取或客户端插件 | 重新编译客户端，并在管理后台只重建客户端容器 |
+| 只修改 `text-to-image` Skill 指令或脚本 | 运行 Skill 安装脚本并重启客户端，不重建协议服务端 |
+| 修改 AI 发图持久化、引用图片下载或 Agent 重试 | 重新编译客户端，并重新安装 `text-to-image` Skill |
 
 日常增加菜单项或修改管理规则通常只涉及网关，不需要替换客户端镜像，也不需要重建微信协议服务端。
 
@@ -653,7 +655,59 @@ docker logs --since 5m client_xiW55bPyM3D4o6s6 2>&1 \
 
 版本日志应包含 `business-admin-v2`，配置权限应为 `600`。
 
-### 5.5 微信验收
+### 5.5 安装 GPT 图片生成与编辑 Skill
+
+客户端镜像升级完成后，在飞牛 SSH 中执行：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren
+
+SKILL_DIR='.deploy/local/wechat-robot/xiW55bPyM3D4o6s6/data/skills/text-to-image'
+
+.deploy/skills/install-text-to-image-gpt-edit.sh "$SKILL_DIR"
+
+docker exec client_xiW55bPyM3D4o6s6 \
+  python3 -m py_compile \
+  /data/skills/text-to-image/scripts/text_to_image.py
+
+docker restart client_xiW55bPyM3D4o6s6 >/dev/null
+```
+
+安装器会先备份当前 Skill，再下载已锁定版本的上游文件、使用现有 Git 应用仓库补丁并做 Python 语法检查。后台绘图 JSON 保持只启用 OpenAI：
+
+```json
+{
+  "OpenAI": {
+    "enabled": true,
+    "base_url": "https://中转站地址/v1",
+    "api_key": "不要写入文档或 Git",
+    "model": "gpt-image-2",
+    "n": 1
+  },
+  "default_model": "gpt-image-2",
+  "output_count": 1
+}
+```
+
+该版本支持三种流程：
+
+```text
+文生图：
+@机器人 生成一张白底黑色打火机商品图
+
+单图修改：
+引用目标图片 -> @机器人 将红色打火机换成黑色，其他内容保持不变
+
+双图替换：
+先发送参考图片
+再引用目标图片 -> @机器人 用我刚才发送的参考图商品替换目标图里的打火机，保持版式和文字不变
+```
+
+双图模式只读取同一会话、同一发送者在 5 分钟内最近发送的另一张图片。引用图片始终作为目标图，最近发送的图片作为参考图。机器人生成的结果会在开启自动上传图片时持久化到 OSS，因此可以继续引用并多次修改。
+
+中转站必须兼容 `POST /v1/images/edits` 和 multipart 多图字段。OpenAI 官方接口支持单图编辑和多图参考；仅 `/v1/images/generations` 可用不代表中转站一定支持编辑。
+
+### 5.6 微信验收
 
 先只在测试群验证。由固定所有者 Y 发送：
 
@@ -859,3 +913,8 @@ Appid + ":" + NewMsgId
 | 重启后机器人离线 | 分别检查协议服务端、客户端、Redis 和登录态，不立即重新扫码 |
 | 业务消息先被 AI 回复 | 检查插件顺序以及 `handled=true` 语义 |
 | 内置 AI 和网关重复回复 | 检查前置插件是否正确停止后续插件 |
+| `activate_skill` 后出现 `unexpected end of JSON input` | 升级客户端；只读 Skill 工具后允许自动重试，执行生图脚本后仍禁止重试 |
+| 引用图片只显示“上传成功”但没有修改结果 | 检查日志是否出现 `Executing tool: execute_skill_script`，并确认中转站支持 `/v1/images/edits` |
+| 引用机器人生成图时报 `EOF` | 升级客户端和 Skill；新版本会保存生成图的 OSS 地址并优先从该地址下载 |
+| 双图替换提示找不到参考图 | 先发送参考图，再在 5 分钟内引用目标图；两条消息必须来自同一个微信账号 |
+| 图片编辑结果无法再次引用 | 检查自动上传图片和 COS 写入权限，日志应出现 `images上传成功` |
