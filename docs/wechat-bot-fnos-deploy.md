@@ -776,7 +776,88 @@ docker compose up -d --no-build --force-recreate
 
 回滚镜像时不要删除 `business-gateway-data` 卷。新版创建的 `/data/admins.json` 和 `/data/audit.jsonl` 可以保留，旧版不会使用它们。
 
-## 6. 权限模型
+## 6. 单群每日安全提醒
+
+客户端内置“安全生产每日风险提醒”海报模板和 31 组已审核主题。海报的 Logo、公司名称、主标题、警示图标和工厂背景固定；日期、今日重点、三条提醒和底部标语根据日期每天轮换。同一天重复生成的内容一致，定时发送由 Redis 防止当天重复执行。
+
+该功能只支持一个目标群，且默认关闭。配置文件位于客户端容器的 `/data/skills/.safety-reminder.json`。在飞牛仓库目录创建配置：
+
+```bash
+cd /vol1/1000/wechat-robot/jiqiren
+
+CLIENT_DATA='.deploy/local/wechat-robot/<robot_code>/data'
+cp .deploy/safety-reminder.example.json \
+  "$CLIENT_DATA/skills/.safety-reminder.json"
+chmod 600 "$CLIENT_DATA/skills/.safety-reminder.json"
+```
+
+首次测试保持 `enabled` 为 `false`，只填写测试 Token 和唯一目标群 ID：
+
+```json
+{
+  "enabled": false,
+  "cron": "0 8 * * *",
+  "target_chat_room_id": "替换为目标群ID@chatroom",
+  "send_on_weekends": true,
+  "test_token": "替换为 openssl rand -hex 32 生成的随机值",
+  "topics_file": ""
+}
+```
+
+配置项说明：
+
+| 配置 | 作用 |
+|---|---|
+| `enabled` | 是否注册自动发送任务；测试阶段必须保持 `false` |
+| `cron` | 五段 Cron，默认每天 08:00 |
+| `target_chat_room_id` | 唯一接收群，必须以 `@chatroom` 结尾 |
+| `send_on_weekends` | 周六、周日是否发送 |
+| `test_token` | 保护预览和手动试发接口，不得提交到 Git |
+| `topics_file` | 可选自定义主题 JSON；留空使用内置 31 组内容 |
+
+重新创建客户端容器后，先只预览、不发送微信。下面命令会把图片保存到飞牛当前目录：
+
+```bash
+CLIENT='client_<robot_code>'
+TOKEN='配置文件中的 test_token'
+
+docker exec "$CLIENT" curl -fsS \
+  -H "X-Safety-Reminder-Token: $TOKEN" \
+  'http://127.0.0.1:9000/api/v1/robot/safety-reminder/preview?date=2026-07-24' \
+  > safety-reminder-preview.png
+
+file safety-reminder-preview.png
+```
+
+检查预览无误后，手动试发到配置的唯一群：
+
+```bash
+docker exec "$CLIENT" curl -fsS -X POST \
+  -H 'Content-Type: application/json' \
+  -H "X-Safety-Reminder-Token: $TOKEN" \
+  -d '{"date":"2026-07-24"}' \
+  'http://127.0.0.1:9000/api/v1/robot/safety-reminder/send'
+```
+
+确认目标群收到的图片正确后，把配置中的 `enabled` 改为 `true`，再重启客户端以注册定时任务：
+
+```bash
+docker restart "$CLIENT"
+docker logs --since 2m "$CLIENT" 2>&1 \
+  | grep -E '安全提醒|scheduled with cron'
+```
+
+日志应出现“每日安全提醒任务初始化成功”。自动任务同一天只发送一次；手动试发接口用于验收，不受该去重限制。需要暂停时把 `enabled` 改回 `false` 并重启客户端。
+
+源码环境也可以直接生成本地预览，不连接微信：
+
+```bash
+go run ./cmd/safety-poster-preview \
+  --date 2026-07-24 \
+  --out safety-reminder-preview.png
+```
+
+## 7. 权限模型
 
 ```text
 客户群：group_id 固定绑定一个 customer_code，只能查询该客户
@@ -841,7 +922,7 @@ docker compose up -d --no-build --force-recreate
 
 管理员群不使用 `*` 作为客户编码。群绑定和动态管理员保存在网关数据卷，变更审计追加到 `/data/audit.jsonl`。
 
-## 7. Webhook
+## 8. Webhook
 
 Webhook 用于审计、联系人同步和异常补偿，不作为业务消息的第一处理入口：
 
@@ -861,7 +942,7 @@ hp0912 会发送包含 `AddMsgs` 的批次，并在 URL 后追加 `robot_id`、`
 Appid + ":" + NewMsgId
 ```
 
-## 8. 验收清单
+## 9. 验收清单
 
 基础平台：
 
@@ -902,7 +983,7 @@ Appid + ":" + NewMsgId
 
 接入真实客户群时逐群核对 `customer_code`，先执行“查看群绑定”，再用该客户的一项已知库存做隔离验证。未完成隔离验证的群不要投入正式使用。
 
-## 9. 故障排查
+## 10. 故障排查
 
 | 现象 | 处理 |
 |---|---|

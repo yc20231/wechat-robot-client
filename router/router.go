@@ -31,6 +31,7 @@ var knowledgeCategoryCtl *controller.KnowledgeCategory
 var systemPromptCtl *controller.SystemPrompt
 var officialAccountCtx *controller.OfficialAccount
 var wxAppCtl *controller.WXApp
+var safetyReminderCtl *controller.SafetyReminder
 
 func initController() {
 	chatHistoryCtl = controller.NewChatHistoryController()
@@ -57,6 +58,7 @@ func initController() {
 	systemPromptCtl = controller.NewSystemPromptController()
 	officialAccountCtx = controller.NewOfficialAccountController()
 	wxAppCtl = controller.NewWXAppController()
+	safetyReminderCtl = controller.NewSafetyReminderController()
 }
 
 func RegisterRouter(r *gin.Engine) error {
@@ -136,6 +138,10 @@ func RegisterRouter(r *gin.Engine) error {
 	api.POST("/robot/message/send/emoji", messageCtl.SendEmojiMessage)
 	api.POST("/robot/message/send/file", messageCtl.SendFileMessage)
 	api.POST("/robot/message/send/file/local", messageCtl.SendFileMessageByLocalPath)
+
+	// 单群每日安全提醒预览与手动试发（需要独立测试 Token）
+	api.GET("/robot/safety-reminder/preview", safetyReminderCtl.Preview)
+	api.POST("/robot/safety-reminder/send", safetyReminderCtl.Send)
 
 	// 系统消息相关接口
 	api.GET("/robot/system-messages", systemMessageCtl.GetRecentMonthMessages)

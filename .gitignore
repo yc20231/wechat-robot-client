@@ -27,3 +27,4 @@ Dockerfile.fnos
 .deploy/local/wechat-server
 .deploy/local/xiaohongshu-mcp
 .deploy/local/wechat-robot
+tmp/

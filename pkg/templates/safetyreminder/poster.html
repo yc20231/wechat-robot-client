@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 1279px;
+      height: 1706px;
+      overflow: hidden;
+      background: #f7fbf9;
+    }
+    body {
+      position: relative;
+      font-family: "PingFang SC", "STHeiti", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      color: #143d2d;
+    }
+    .background {
+      position: absolute;
+      inset: 0;
+      width: 1279px;
+      height: 1706px;
+      display: block;
+    }
+    .dynamic {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      white-space: nowrap;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    .date {
+      top: 714px;
+      height: 66px;
+      line-height: 66px;
+      padding: 0 430px;
+      font-size: 34px;
+      color: #345d4e;
+    }
+    .focus {
+      top: 840px;
+      left: 210px;
+      width: 860px;
+      height: 106px;
+      line-height: 106px;
+      padding: 0 48px;
+      font-size: 45px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .point {
+      left: 314px;
+      width: 800px;
+      height: 64px;
+      line-height: 64px;
+      padding: 0 8px;
+      text-align: left;
+      font-size: 34px;
+      font-weight: 500;
+      color: #163f30;
+    }
+    .point-1 { top: 972px; }
+    .point-2 { top: 1068px; }
+    .point-3 { top: 1164px; }
+    .slogan {
+      top: 1519px;
+      height: 187px;
+      line-height: 187px;
+      padding: 0 90px;
+      font-size: 38px;
+      font-weight: 600;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <img class="background" src="data:image/png;base64,{{.Background}}" alt="">
+  <div class="dynamic date fit">{{.Date}}</div>
+  <div class="dynamic focus fit">今日重点：{{.Focus}}</div>
+  <div class="dynamic point point-1 fit">{{index .Points 0}}</div>
+  <div class="dynamic point point-2 fit">{{index .Points 1}}</div>
+  <div class="dynamic point point-3 fit">{{index .Points 2}}</div>
+  <div class="dynamic slogan fit">{{.Slogan}}</div>
+  <script>
+    window.posterReady = Promise.all([
+      document.fonts ? document.fonts.ready : Promise.resolve(),
+      ...Array.from(document.images).map(img => img.complete
+        ? Promise.resolve()
+        : new Promise(resolve => { img.onload = img.onerror = resolve; }))
+    ]).then(() => {
+      for (const element of document.querySelectorAll('.fit')) {
+        let size = parseFloat(getComputedStyle(element).fontSize);
+        while (element.scrollWidth > element.clientWidth && size > 22) {
+          size -= 1;
+          element.style.fontSize = size + 'px';
+        }
+      }
+      return true;
+    });
+  </script>
+</body>
+</html>

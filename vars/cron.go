@@ -17,6 +17,7 @@ const (
 	MorningCron               CommonCron = "morning_cron"
 	FriendSyncCron            CommonCron = "friend_sync_cron"
 	SessionSummarizeCron      CommonCron = "session_summarize_cron"
+	SafetyReminderCron        CommonCron = "safety_reminder_cron"
 )
 
 type TaskHandler func()

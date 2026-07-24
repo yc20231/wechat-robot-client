@@ -74,6 +74,9 @@ func (m *CronManager) Start() {
 	}
 	// 为空的时候，是从未扫码登陆的时候
 	if vars.RobotRuntime.WxID != "" {
+		// 每日安全提醒（独立配置，仅发送到一个指定群）
+		safetyReminderCron := NewSafetyReminderCron(m)
+		safetyReminderCron.Register()
 		// 为 nil 的时候，是从未扫码登陆的时候
 		if m.globalSettings != nil {
 			// 同步联系人

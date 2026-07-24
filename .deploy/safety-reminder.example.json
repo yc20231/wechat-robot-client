@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "cron": "0 8 * * *",
+  "target_chat_room_id": "",
+  "send_on_weekends": true,
+  "test_token": "replace-with-a-random-token",
+  "topics_file": ""
+}
