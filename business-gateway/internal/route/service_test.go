@@ -206,6 +206,44 @@ func TestAdminInventoryRequiresBothGroupAndWxID(t *testing.T) {
 	}
 }
 
+func TestAdminInventorySupportsTrailingRobotMention(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		wantKeyword string
+	}{
+		{name: "attached", content: "查 056 库存@阳强机器人"},
+		{name: "wechat space", content: "查库存 056 红\u2005@阳强机器人", wantKeyword: "红"},
+		{name: "nickname with spaces", content: "查库存 056 蓝 @阳强 机器人", wantKeyword: "蓝"},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := &fakeBackend{inventory: backend.Inventory{CustomerCode: "056"}}
+			service := newTestService(api)
+			response := service.Route(context.Background(), baseRequest("admin@chatroom", "admin-wxid", tt.content, int64(300+index)))
+			if !response.Handled || response.Error != "" {
+				t.Fatalf("unexpected response: %+v", response)
+			}
+			if api.query.CustomerCode != "056" || api.query.Keyword != tt.wantKeyword {
+				t.Fatalf("query = %+v, want customer 056 and keyword %q", api.query, tt.wantKeyword)
+			}
+		})
+	}
+}
+
+func TestLeadingRobotMentionPreservesAtSignInInventoryKeyword(t *testing.T) {
+	api := &fakeBackend{}
+	service := newTestService(api)
+	response := service.Route(context.Background(), baseRequest("customer@chatroom", "member", "@机器人 查库存 @货号", 310))
+	if !response.Handled || response.Error != "" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if api.query.CustomerCode != "270" || api.query.Keyword != "@货号" {
+		t.Fatalf("query = %+v, want bound customer 270 and keyword @货号", api.query)
+	}
+}
+
 func TestExperimentalStatusOnlyAllowsAuthorizedAdmin(t *testing.T) {
 	api := &fakeBackend{}
 	service := newTestService(api)

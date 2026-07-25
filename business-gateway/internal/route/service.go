@@ -82,7 +82,11 @@ func (s *Service) Route(ctx context.Context, req Request) Response {
 	req.GroupID = strings.TrimSpace(req.GroupID)
 	req.SenderWxID = strings.TrimSpace(req.SenderWxID)
 	req.RobotWxID = strings.TrimSpace(req.RobotWxID)
-	content := stripLeadingMentions(req.Content)
+	content := strings.TrimSpace(req.Content)
+	if req.IsAtMe && !strings.HasPrefix(content, "@") {
+		content = stripTrailingMentionFromCommand(content)
+	}
+	content = stripLeadingMentions(content)
 	management, isManagement := parseManagementCommand(content)
 	cmd, isBusiness := parseCommand(content)
 	if !isManagement && !isBusiness {
@@ -192,6 +196,24 @@ func stripLeadingMentions(content string) string {
 		}
 		_, separatorSize := utf8.DecodeRuneInString(content[separator:])
 		content = strings.TrimSpace(content[separator+separatorSize:])
+	}
+	return content
+}
+
+func stripTrailingMentionFromCommand(content string) string {
+	mentionIndex := strings.LastIndex(content, "@")
+	if mentionIndex <= 0 {
+		return content
+	}
+	candidate := strings.TrimSpace(content[:mentionIndex])
+	if candidate == "" {
+		return content
+	}
+	if _, ok := parseManagementCommand(candidate); ok {
+		return candidate
+	}
+	if _, ok := parseCommand(candidate); ok {
+		return candidate
 	}
 	return content
 }
