@@ -158,6 +158,15 @@ mentioned_wxids       MessageSource.atuserlist 中的真实 wxid 列表
 
 请求使用 `X-Internal-Route-Token`，其值必须与客户端 `BUSINESS_GATEWAY_TOKEN` 一致。
 
+群内真实 `@机器人` 可以放在消息开头或末尾。去除艾特后属于受支持业务或管理命令的消息由网关处理；不属于指令的普通问题继续进入 hp0912 内置 AI。客户端在调用 AI 前也会清理开头或末尾的机器人艾特，不会把艾特昵称当作问题内容交给模型。
+
+```text
+@机器人 查库存 H1       -> BusinessRouterPlugin
+查库存 H1@机器人        -> BusinessRouterPlugin
+@机器人 普通问题        -> hp0912 内置 AI
+普通问题@机器人         -> hp0912 内置 AI
+```
+
 响应状态：
 
 ```text
@@ -384,6 +393,8 @@ DELETE /admin/groups/{group_id}
 - [x] 后端失败时不进入 AI 编造业务答案
 - [x] 业务消息先被前置路由处理，不能先触发 hp0912 AI
 - [x] 非业务消息继续进入 hp0912 内置 AI
+- [x] 业务命令同时支持前置和末尾 `@机器人`
+- [x] 普通 AI 问题同时支持前置和末尾 `@机器人`，模型输入不含机器人艾特
 - [x] AI 文本回复带有“本消息由AI生成回复”尾注
 - [x] 机器人自己发送的消息不会再次触发业务
 - [x] 只有真实且唯一的 @ 目标可用于管理员变更
@@ -399,7 +410,7 @@ DELETE /admin/groups/{group_id}
 
 ## 10. 与客户端镜像的关系
 
-`BusinessRouterPlugin` 和 AI 尾注都属于自定义客户端代码。管理后台当前把客户端镜像固定为：
+`BusinessRouterPlugin`、AI 前置/末尾艾特清理和 AI 尾注都属于自定义客户端代码；末尾艾特的业务命令识别属于 `business-gateway` 代码。因此更新 AI 艾特清理需要重建客户端，更新业务命令解析需要重建网关。管理后台当前把客户端镜像固定为：
 
 ```text
 registry.cn-shenzhen.aliyuncs.com/houhou/wechat-robot-client:latest

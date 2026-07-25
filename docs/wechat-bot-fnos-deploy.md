@@ -465,6 +465,15 @@ handled=false -> 继续 hp0912 内置 AI
 业务错误      -> 插件发送固定错误，停止后续 AI
 ```
 
+群消息中的真实 `@机器人` 支持放在开头或末尾。去除艾特后能够识别为受支持的业务或管理命令时，由 `BusinessRouterPlugin` 返回确定性结果并阻止 AI；无法识别为指令的普通问题返回 `handled=false`，继续进入内置 AI。进入 AI 前，客户端同样会清理开头或末尾的机器人艾特，只把用户的实际问题交给模型。
+
+```text
+@机器人 查库存 H1       -> BusinessRouter
+查库存 H1@机器人        -> BusinessRouter
+@机器人 普通问题        -> 内置 AI
+普通问题@机器人         -> 内置 AI
+```
+
 `business-gateway` 目标目录：
 
 ```text
@@ -487,9 +496,9 @@ handled=false -> 继续 hp0912 内置 AI
 |---|---|
 | 添加/移除管理员、绑定/解绑群、修改业务数据 | 不重建镜像；群内命令或业务后台操作后立即生效 |
 | 修改 `business-gateway/.env` | 只重启或强制重建 `business-gateway` 容器 |
-| 修改网关命令、权限、菜单或业务路由逻辑 | 只重新编译并切换 `business-gateway` 镜像 |
+| 修改网关命令、权限、菜单、末尾艾特指令解析或业务路由逻辑 | 只重新编译并切换 `business-gateway` 镜像 |
 | 修改 ThinkPHP API 或网站业务数据逻辑 | 只发布网站后端；接口契约未变时无需更新飞牛镜像 |
-| 修改消息解析、真实 @ wxid 提取或客户端插件 | 重新编译客户端，并在管理后台只重建客户端容器 |
+| 修改客户端消息解析、真实 @ wxid 提取、AI 艾特清理或客户端插件 | 重新编译客户端，并在管理后台只重建客户端容器 |
 | 只修改 `text-to-image` Skill 指令或脚本 | 运行 Skill 安装脚本并重启客户端，不重建协议服务端 |
 | 修改 AI 发图持久化、引用图片下载或 Agent 重试 | 重新编译客户端，并重新安装 `text-to-image` Skill |
 
@@ -617,6 +626,8 @@ curl -sS -w '\nHTTP_STATUS=%{http_code}\n' http://127.0.0.1:18080/healthz
 ```bash
 cd /vol1/1000/wechat-robot/jiqiren
 
+.tools/go/bin/go test ./utils
+
 .tools/go/bin/go test ./plugin/plugins \
   -run 'Test(BusinessRouter|LoadBusinessRouter|InvalidConfiguredBusinessRouter|AppendAIReplyFooter)'
 
@@ -737,7 +748,16 @@ docker restart client_xiW55bPyM3D4o6s6 >/dev/null
 @机器人 确认解绑客户 270
 ```
 
-普通消息应继续进入内置 AI，实时业务失败应被网关拦截且不能进入 AI。检查持久化文件和审计日志：
+再分别验证前置和末尾艾特的分流：
+
+```text
+@机器人 查库存 H1
+查库存 H1@机器人
+@机器人 有臻彩光四色裸板灯带 H1 这款型号吗
+有臻彩光四色裸板灯带 H1 这款型号吗@机器人
+```
+
+前两条应只返回确定性库存结果，不触发 AI；后两条应进入内置 AI，且模型收到的问题中不再包含机器人艾特。实时业务失败应被网关拦截且不能进入 AI。检查持久化文件和审计日志：
 
 ```bash
 cd /vol1/1000/wechat-robot/jiqiren/business-gateway
@@ -778,7 +798,9 @@ docker compose up -d --no-build --force-recreate
 
 ## 6. 单群每日安全提醒
 
-客户端内置“安全生产每日风险提醒”海报模板和 31 组已审核主题。海报的 Logo、公司名称、主标题、警示图标和工厂背景固定；日期、今日重点、三条提醒和底部标语根据日期每天轮换。同一天重复生成的内容一致，定时发送由 Redis 防止当天重复执行。
+客户端内置“安全生产每日风险提醒”海报模板和 120 组已审核主题。海报的 Logo、公司名称、主标题、警示图标和工厂背景固定；日期、今日重点、三条提醒和底部标语根据日期每天轮换。同一天重复生成的内容一致，定时发送由 Redis 防止当天重复执行。
+
+该任务由 Cron 直接生成海报并调用图片发送接口，不经过群消息接收、`BusinessRouterPlugin` 或内置 AI。业务指令和 AI 艾特清理的修改不会影响目标群、执行时间、海报内容或 Redis 每日去重。重新创建客户端容器时任务会从 `/data/skills/.safety-reminder.json` 重新注册，原有配置和当天去重仍然有效。应避开计划发送的那一分钟重建客户端；如果容器在触发时刻未运行，Cron 不会补发错过的当日任务。
 
 该功能只支持一个目标群，且默认关闭。配置文件位于客户端容器的 `/data/skills/.safety-reminder.json`。在飞牛仓库目录创建配置：
 
@@ -813,7 +835,7 @@ chmod 600 "$CLIENT_DATA/skills/.safety-reminder.json"
 | `target_chat_room_id` | 唯一接收群，必须以 `@chatroom` 结尾 |
 | `send_on_weekends` | 周六、周日是否发送 |
 | `test_token` | 保护预览和手动试发接口，不得提交到 Git |
-| `topics_file` | 可选自定义主题 JSON；留空使用内置 31 组内容 |
+| `topics_file` | 可选自定义主题 JSON；留空使用内置 120 组内容 |
 
 重新创建客户端容器后，先只预览、不发送微信。下面命令会把图片保存到飞牛当前目录：
 
@@ -974,6 +996,8 @@ Appid + ":" + NewMsgId
 - [x] 管理员权限拒绝已通过内部路由验证
 - [x] 业务失败不会落入 AI
 - [x] 非业务消息继续进入内置 AI
+- [x] 业务指令支持前置和末尾 `@机器人`，且不会触发 AI
+- [x] 普通 AI 问题支持前置和末尾 `@机器人`，模型输入不含机器人艾特
 - [x] 固定所有者 Y 不可移除
 - [x] 动态根管理员和普通管理员全局增删
 - [x] 客户群和管理员群绑定、改绑、解绑
