@@ -8,9 +8,9 @@ import (
 )
 
 func TrimAt(content string) string {
-	// 去除@开头的触发词
+	// 去除微信消息开头或末尾的 @ 触发词。
 	re := regexp.MustCompile(vars.TrimAtRegexp)
-	return re.ReplaceAllString(content, "")
+	return strings.TrimSpace(re.ReplaceAllString(content, ""))
 }
 
 func TrimAITriggerWord(content, aiTriggerWord string) string {

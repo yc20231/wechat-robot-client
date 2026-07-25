@@ -2,6 +2,43 @@ package utils
 
 import "testing"
 
+func TestTrimAtSupportsLeadingAndTrailingMentions(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "leading mention with wechat space",
+			content: "@阳强机器人\u2005有臻彩光四色裸板灯带 H1这款型号吗",
+			want:    "有臻彩光四色裸板灯带 H1这款型号吗",
+		},
+		{
+			name:    "attached trailing mention",
+			content: "有臻彩光四色裸板灯带 H1这款型号吗@阳强机器人",
+			want:    "有臻彩光四色裸板灯带 H1这款型号吗",
+		},
+		{
+			name:    "trailing mention after wechat spaces",
+			content: "有臻彩光四色裸板灯带 H1这款型号吗\u2005\u2005@阳强机器人",
+			want:    "有臻彩光四色裸板灯带 H1这款型号吗",
+		},
+		{
+			name:    "message without mention",
+			content: "有臻彩光四色裸板灯带 H1这款型号吗",
+			want:    "有臻彩光四色裸板灯带 H1这款型号吗",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TrimAt(tt.content); got != tt.want {
+				t.Fatalf("TrimAt(%q) = %q, want %q", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeAIBaseURL(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -75,7 +75,7 @@ var UploadFileChunkSize int64 = 200 * 1000  // 200KB
 
 var AtAllRegexp = `@所有人(?: | )`
 
-var TrimAtRegexp = `@[^ | ]+?(?: | )`
+var TrimAtRegexp = `@[^ | ]+?(?: | |$)`
 
 var OfficialAccount = map[string]bool{
 	"filehelper":            true,
