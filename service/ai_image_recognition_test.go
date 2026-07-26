@@ -39,6 +39,25 @@ func TestDownloadImageAsDataURLInlinesImageBytes(t *testing.T) {
 	}
 }
 
+func TestBuildImageDataURLUsesDownloadedImageBytes(t *testing.T) {
+	imageBytes := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	got, err := buildImageDataURL(imageBytes, "image/png; charset=binary")
+	if err != nil {
+		t.Fatalf("buildImageDataURL() error = %v", err)
+	}
+	if !strings.HasPrefix(got, "data:image/png;base64,") {
+		t.Fatalf("data URL prefix = %q", got)
+	}
+	encoded := strings.TrimPrefix(got, "data:image/png;base64,")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode error = %v", err)
+	}
+	if !bytes.Equal(decoded, imageBytes) {
+		t.Fatalf("decoded bytes = %v, want %v", decoded, imageBytes)
+	}
+}
+
 func TestBuildImageRecognitionParamsUsesConfiguredVisionModelAndImageURL(t *testing.T) {
 	params, err := buildImageRecognitionParams(
 		"这辆是什么车",

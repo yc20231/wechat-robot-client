@@ -40,6 +40,23 @@ func (a *AttachDownloadService) DownloadImage(messageID int64) ([]byte, string, 
 	return vars.RobotRuntime.DownloadImage(*message)
 }
 
+// DownloadOriginalImage always reads the image from WeChat instead of using
+// an existing OSS attachment URL. Callers that need to avoid OSS traffic
+// should use this method explicitly.
+func (a *AttachDownloadService) DownloadOriginalImage(messageID int64) ([]byte, string, string, error) {
+	message, err := a.msgRepo.GetByID(messageID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if message == nil {
+		return nil, "", "", errors.New("消息不存在")
+	}
+	if message.Type != model.MsgTypeImage {
+		return nil, "", "", errors.New("消息类型错误")
+	}
+	return vars.RobotRuntime.DownloadImage(*message)
+}
+
 func (a *AttachDownloadService) DownloadVoice(req dto.AttachDownloadRequest) ([]byte, string, string, error) {
 	message, err := a.msgRepo.GetByID(req.MessageID)
 	if err != nil {

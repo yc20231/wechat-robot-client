@@ -99,7 +99,63 @@ func downloadImageAsDataURL(ctx context.Context, imageURL string) (string, error
 		return "", fmt.Errorf("下载内容不是图片，类型为 %s", contentType)
 	}
 
+	return buildImageDataURL(data, contentType)
+}
+
+func buildImageDataURL(data []byte, contentType string) (string, error) {
+	if len(data) == 0 {
+		return "", fmt.Errorf("图片内容为空")
+	}
+	contentType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = http.DetectContentType(data)
+	}
+	if contentType == "image/jpg" {
+		contentType = "image/jpeg"
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		return "", fmt.Errorf("图片内容类型无效: %s", contentType)
+	}
 	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+func (s *AIImageRecognitionService) RecognizeMessage(question string, messageID int64, aiConfig settings.AIConfig) (string, error) {
+	if strings.TrimSpace(question) == "" {
+		return "", fmt.Errorf("图片问题不能为空")
+	}
+	if messageID <= 0 {
+		return "", fmt.Errorf("图片消息不能为空")
+	}
+	if strings.TrimSpace(aiConfig.ImageRecognitionModel) == "" {
+		return "", fmt.Errorf("图像识别模型不能为空")
+	}
+
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	data, contentType, _, err := NewAttachDownloadService(ctx).DownloadOriginalImage(messageID)
+	if err != nil {
+		return "", fmt.Errorf("下载原始图片失败: %w", err)
+	}
+	imageDataURL, err := buildImageDataURL(data, contentType)
+	if err != nil {
+		return "", fmt.Errorf("准备图像识别图片失败: %w", err)
+	}
+	params, err := buildImageRecognitionParams(question, imageDataURL, aiConfig)
+	if err != nil {
+		return "", err
+	}
+	client := newOpenAIClient(aiConfig.APIKey, aiConfig.BaseURL)
+	message, err := streamChatCompletionMessage(ctx, &client, params)
+	if err != nil {
+		return "", fmt.Errorf("调用图像识别模型失败: %w", err)
+	}
+	content := strings.TrimSpace(message.Content)
+	if content == "" {
+		return "", fmt.Errorf("图像识别模型返回空内容")
+	}
+	return content, nil
 }
 
 func (s *AIImageRecognitionService) Recognize(question, imageURL string, aiConfig settings.AIConfig) (string, error) {

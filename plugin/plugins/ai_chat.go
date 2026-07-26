@@ -94,19 +94,12 @@ func (p *AIChatPlugin) Match(ctx *plugin.MessageContext) bool {
 func (p *AIChatPlugin) PreAction(ctx *plugin.MessageContext) bool {
 	if ctx.ReferMessage != nil {
 		if ctx.ReferMessage.Type == model.MsgTypeImage {
-			imageUpload := NewAIImageUploadPlugin()
-			match := imageUpload.Match(ctx)
-			if !match {
-				return false
-			}
-			imageUpload.Run(ctx)
 			err := ctx.MessageService.SetMessageIsInContext(ctx.ReferMessage)
 			if err != nil {
 				log.Printf("更新消息上下文失败: %v", err)
 				return false
 			}
-		}
-		if ctx.ReferMessage.Type == model.MsgTypeEmoticon {
+		} else if ctx.ReferMessage.Type == model.MsgTypeEmoticon {
 			emojiUpload := NewAIEmojiUploadPlugin()
 			match := emojiUpload.Match(ctx)
 			if !match {
@@ -118,8 +111,7 @@ func (p *AIChatPlugin) PreAction(ctx *plugin.MessageContext) bool {
 				log.Printf("更新消息上下文失败: %v", err)
 				return false
 			}
-		}
-		if ctx.ReferMessage.Type == model.MsgTypeVoice {
+		} else if ctx.ReferMessage.Type == model.MsgTypeVoice {
 			voiceUpload := NewAIVoiceUploadPlugin()
 			match := voiceUpload.Match(ctx)
 			if !match {
@@ -131,8 +123,7 @@ func (p *AIChatPlugin) PreAction(ctx *plugin.MessageContext) bool {
 				log.Printf("更新消息上下文失败: %v", err)
 				return false
 			}
-		}
-		if ctx.ReferMessage.Type == model.MsgTypeVideo {
+		} else if ctx.ReferMessage.Type == model.MsgTypeVideo {
 			videoUpload := NewAIVideoUploadPlugin()
 			match := videoUpload.Match(ctx)
 			if !match {
@@ -144,8 +135,7 @@ func (p *AIChatPlugin) PreAction(ctx *plugin.MessageContext) bool {
 				log.Printf("更新消息上下文失败: %v", err)
 				return false
 			}
-		}
-		if ctx.ReferMessage.Type == model.MsgTypeApp && ctx.ReferMessage.AppMsgType == model.AppMsgTypeAttach {
+		} else if ctx.ReferMessage.Type == model.MsgTypeApp && ctx.ReferMessage.AppMsgType == model.AppMsgTypeAttach {
 			attachUpload := NewAIAttachUploadPlugin()
 			match := attachUpload.Match(ctx)
 			if !match {
@@ -320,11 +310,8 @@ func (p *AIChatPlugin) Run(ctx *plugin.MessageContext) {
 		question := p.trimAITriggerFromText(ctx.MessageContent, aiTriggerWord)
 		aiConfig := ctx.Settings.GetAIConfig()
 		startedAt := time.Now()
-		recognition, recognitionErr := service.NewAIImageRecognitionService(ctx.Context).Recognize(
-			question,
-			ctx.ReferMessage.AttachmentUrl,
-			aiConfig,
-		)
+		recognition, recognitionErr := service.NewAIImageRecognitionService(ctx.Context).RecognizeMessage(
+			question, ctx.ReferMessage.ID, aiConfig)
 		if recognitionErr != nil {
 			log.Printf("[ImageRecognition] 引用图片识别失败: model=%s msg_id=%d err=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, recognitionErr)
 		} else {
