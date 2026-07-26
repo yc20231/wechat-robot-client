@@ -1,12 +1,43 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"wechat-robot-client/interface/settings"
 )
+
+func TestDownloadImageAsDataURLInlinesImageBytes(t *testing.T) {
+	imageBytes := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(imageBytes)
+	}))
+	defer server.Close()
+
+	got, err := downloadImageAsDataURL(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("downloadImageAsDataURL() error = %v", err)
+	}
+	if !strings.HasPrefix(got, "data:image/jpeg;base64,") {
+		t.Fatalf("data URL prefix = %q", got)
+	}
+
+	encoded := strings.TrimPrefix(got, "data:image/jpeg;base64,")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode error = %v", err)
+	}
+	if !bytes.Equal(decoded, imageBytes) {
+		t.Fatalf("decoded bytes = %v, want %v", decoded, imageBytes)
+	}
+}
 
 func TestBuildImageRecognitionParamsUsesConfiguredVisionModelAndImageURL(t *testing.T) {
 	params, err := buildImageRecognitionParams(
