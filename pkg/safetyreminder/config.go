@@ -15,12 +15,13 @@ const (
 )
 
 type Config struct {
-	Enabled          bool   `json:"enabled"`
-	Cron             string `json:"cron"`
-	TargetChatRoomID string `json:"target_chat_room_id"`
-	SendOnWeekends   bool   `json:"send_on_weekends"`
-	TestToken        string `json:"test_token"`
-	TopicsFile       string `json:"topics_file"`
+	Enabled           bool     `json:"enabled"`
+	Cron              string   `json:"cron"`
+	TargetChatRoomID  string   `json:"target_chat_room_id,omitempty"`
+	TargetChatRoomIDs []string `json:"target_chat_room_ids,omitempty"`
+	SendOnWeekends    bool     `json:"send_on_weekends"`
+	TestToken         string   `json:"test_token"`
+	TopicsFile        string   `json:"topics_file"`
 }
 
 func DefaultConfig() Config {
@@ -59,6 +60,9 @@ func LoadConfigFile(path string) (Config, error) {
 	}
 	config.Cron = strings.TrimSpace(config.Cron)
 	config.TargetChatRoomID = strings.TrimSpace(config.TargetChatRoomID)
+	for index := range config.TargetChatRoomIDs {
+		config.TargetChatRoomIDs[index] = strings.TrimSpace(config.TargetChatRoomIDs[index])
+	}
 	config.TestToken = strings.TrimSpace(config.TestToken)
 	config.TopicsFile = strings.TrimSpace(config.TopicsFile)
 	if config.Cron == "" {
@@ -68,11 +72,37 @@ func LoadConfigFile(path string) (Config, error) {
 }
 
 func (c Config) ValidateForSend() error {
-	if c.TargetChatRoomID == "" {
+	targets := c.Targets()
+	if len(targets) == 0 {
 		return errors.New("安全提醒目标群 ID 未配置")
 	}
-	if !strings.HasSuffix(c.TargetChatRoomID, "@chatroom") {
-		return errors.New("安全提醒目标必须是以 @chatroom 结尾的群 ID")
+	for _, target := range targets {
+		if !strings.HasSuffix(target, "@chatroom") {
+			return fmt.Errorf("安全提醒目标 %q 必须是以 @chatroom 结尾的群 ID", target)
+		}
 	}
 	return nil
+}
+
+// Targets returns the configured groups in order without empty or duplicate IDs.
+// TargetChatRoomID is retained so existing single-group configurations keep working.
+func (c Config) Targets() []string {
+	targets := make([]string, 0, len(c.TargetChatRoomIDs)+1)
+	seen := make(map[string]struct{}, len(c.TargetChatRoomIDs)+1)
+	appendTarget := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		targets = append(targets, value)
+	}
+	appendTarget(c.TargetChatRoomID)
+	for _, target := range c.TargetChatRoomIDs {
+		appendTarget(target)
+	}
+	return targets
 }

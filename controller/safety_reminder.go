@@ -60,7 +60,7 @@ func (ct *SafetyReminder) Send(c *gin.Context) {
 	}
 	result, err := service.NewSafetyReminderService(c).Send(date, config, false)
 	if err != nil {
-		appx.NewResponse(c).ToErrorResponse(err)
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error(), "data": result})
 		return
 	}
 	appx.NewResponse(c).ToResponse(result)

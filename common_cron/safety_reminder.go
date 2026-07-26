@@ -38,10 +38,19 @@ func (cron *SafetyReminderCron) Cron() error {
 		log.Printf("%s，跳过重复任务", err)
 		return nil
 	}
+	for _, target := range result.Targets {
+		switch target.Status {
+		case "sent":
+			log.Printf("安全提醒发送成功: 日期=%s 重点=%s 群=%s", result.Date, result.Focus, target.TargetChatRoomID)
+		case "already_sent":
+			log.Printf("今日安全提醒已发送，跳过群: %s", target.TargetChatRoomID)
+		case "failed":
+			log.Printf("安全提醒发送失败: 群=%s 错误=%s", target.TargetChatRoomID, target.Error)
+		}
+	}
 	if err != nil {
 		return err
 	}
-	log.Printf("安全提醒发送成功: 日期=%s 重点=%s 群=%s", result.Date, result.Focus, result.TargetChatRoomID)
 	return nil
 }
 

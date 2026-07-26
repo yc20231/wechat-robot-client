@@ -34,6 +34,43 @@ func TestLoadConfigFile(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFileWithMultipleTargets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := []byte(`{"enabled":true,"target_chat_room_ids":["123@chatroom"," 456@chatroom ","123@chatroom"]}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := config.Targets()
+	if len(targets) != 2 || targets[0] != "123@chatroom" || targets[1] != "456@chatroom" {
+		t.Fatalf("unexpected targets: %v", targets)
+	}
+	if err := config.ValidateForSend(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTargetsMergesLegacyAndMultipleTargets(t *testing.T) {
+	config := Config{
+		TargetChatRoomID:  "legacy@chatroom",
+		TargetChatRoomIDs: []string{"new@chatroom", "legacy@chatroom", ""},
+	}
+	targets := config.Targets()
+	if len(targets) != 2 || targets[0] != "legacy@chatroom" || targets[1] != "new@chatroom" {
+		t.Fatalf("unexpected targets: %v", targets)
+	}
+}
+
+func TestValidateForSendRejectsInvalidTarget(t *testing.T) {
+	config := Config{TargetChatRoomIDs: []string{"valid@chatroom", "invalid"}}
+	if err := config.ValidateForSend(); err == nil {
+		t.Fatal("expected invalid target error")
+	}
+}
+
 func TestInvalidConfigRemainsDisabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "invalid.json")
 	if err := os.WriteFile(path, []byte(`{"enabled":true,"unknown":true}`), 0600); err != nil {

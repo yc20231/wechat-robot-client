@@ -796,13 +796,13 @@ docker compose up -d --no-build --force-recreate
 
 回滚镜像时不要删除 `business-gateway-data` 卷。新版创建的 `/data/admins.json` 和 `/data/audit.jsonl` 可以保留，旧版不会使用它们。
 
-## 6. 单群每日安全提醒
+## 6. 多群每日安全提醒
 
 客户端内置“安全生产每日风险提醒”海报模板和 120 组已审核主题。海报的 Logo、公司名称、主标题、警示图标和工厂背景固定；日期、今日重点、三条提醒和底部标语根据日期每天轮换。同一天重复生成的内容一致，定时发送由 Redis 防止当天重复执行。
 
 该任务由 Cron 直接生成海报并调用图片发送接口，不经过群消息接收、`BusinessRouterPlugin` 或内置 AI。业务指令和 AI 艾特清理的修改不会影响目标群、执行时间、海报内容或 Redis 每日去重。重新创建客户端容器时任务会从 `/data/skills/.safety-reminder.json` 重新注册，原有配置和当天去重仍然有效。应避开计划发送的那一分钟重建客户端；如果容器在触发时刻未运行，Cron 不会补发错过的当日任务。
 
-该功能只支持一个目标群，且默认关闭。配置文件位于客户端容器的 `/data/skills/.safety-reminder.json`。在飞牛仓库目录创建配置：
+该功能支持同时发送到多个目标群，且默认关闭。配置文件位于客户端容器的 `/data/skills/.safety-reminder.json`。在飞牛仓库目录创建配置：
 
 ```bash
 cd /vol1/1000/wechat-robot/jiqiren
@@ -813,13 +813,16 @@ cp .deploy/safety-reminder.example.json \
 chmod 600 "$CLIENT_DATA/skills/.safety-reminder.json"
 ```
 
-首次测试保持 `enabled` 为 `false`，只填写测试 Token 和唯一目标群 ID：
+首次测试保持 `enabled` 为 `false`，填写测试 Token 和所有目标群 ID：
 
 ```json
 {
   "enabled": false,
   "cron": "0 8 * * *",
-  "target_chat_room_id": "替换为目标群ID@chatroom",
+  "target_chat_room_ids": [
+    "替换为第一个目标群ID@chatroom",
+    "替换为第二个目标群ID@chatroom"
+  ],
   "send_on_weekends": true,
   "test_token": "替换为 openssl rand -hex 32 生成的随机值",
   "topics_file": ""
@@ -832,7 +835,8 @@ chmod 600 "$CLIENT_DATA/skills/.safety-reminder.json"
 |---|---|
 | `enabled` | 是否注册自动发送任务；测试阶段必须保持 `false` |
 | `cron` | 五段 Cron，默认每天 08:00 |
-| `target_chat_room_id` | 唯一接收群，必须以 `@chatroom` 结尾 |
+| `target_chat_room_ids` | 接收群数组；每个 ID 必须以 `@chatroom` 结尾，空值和重复值会被忽略 |
+| `target_chat_room_id` | 兼容旧版单群配置；可与新数组同时使用，但新配置建议只使用数组 |
 | `send_on_weekends` | 周六、周日是否发送 |
 | `test_token` | 保护预览和手动试发接口，不得提交到 Git |
 | `topics_file` | 可选自定义主题 JSON；留空使用内置 120 组内容 |
@@ -851,7 +855,7 @@ docker exec "$CLIENT" curl -fsS \
 file safety-reminder-preview.png
 ```
 
-检查预览无误后，手动试发到配置的唯一群：
+检查预览无误后，手动试发到配置的所有群：
 
 ```bash
 docker exec "$CLIENT" curl -fsS -X POST \
@@ -869,7 +873,7 @@ docker logs --since 2m "$CLIENT" 2>&1 \
   | grep -E '安全提醒|scheduled with cron'
 ```
 
-日志应出现“每日安全提醒任务初始化成功”。自动任务同一天只发送一次；手动试发接口用于验收，不受该去重限制。需要暂停时把 `enabled` 改回 `false` 并重启客户端。
+日志应出现“每日安全提醒任务初始化成功”。自动任务按“日期 + 群 ID”分别去重：某个群发送失败不会阻止其余群，下一次执行时只会重试未成功的群。手动试发接口用于验收，不受该去重限制，会发送到配置的所有群。需要暂停时把 `enabled` 改回 `false` 并重启客户端。
 
 源码环境也可以直接生成本地预览，不连接微信：
 
