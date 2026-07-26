@@ -32,13 +32,18 @@ func (s *VectorStoreService) SetImageEmbedding(svc *ImageEmbeddingService) {
 }
 
 // IndexKnowledge 将知识库内容向量化并存入 Qdrant
-func (s *VectorStoreService) IndexKnowledge(ctx context.Context, robotCode string, docID int64, category, title, content string) (string, error) {
+// existingID 非空时复用该 point ID 覆盖写入（重建索引场景），为空时生成新 ID（新增文档场景）。
+// 复用可避免重建索引时产生无法回收的孤儿向量。
+func (s *VectorStoreService) IndexKnowledge(ctx context.Context, robotCode string, docID int64, category, title, content, existingID string) (string, error) {
 	vector, err := s.embedding.Embed(ctx, content)
 	if err != nil {
 		return "", fmt.Errorf("embed knowledge: %w", err)
 	}
 
-	id := s.qdrant.GenerateID()
+	id := existingID
+	if id == "" {
+		id = s.qdrant.GenerateID()
+	}
 	payload := map[string]*pb.Value{
 		"robot_code": qdrantx.NewPayloadValue(robotCode),
 		"doc_id":     qdrantx.NewPayloadIntValue(docID),
@@ -201,7 +206,8 @@ func (s *VectorStoreService) DeleteVectors(ctx context.Context, collection strin
 }
 
 // IndexImageKnowledge 将图片向量化并存入 Qdrant image_knowledge 集合
-func (s *VectorStoreService) IndexImageKnowledge(ctx context.Context, robotCode string, docID int64, imageURL, title, description, category string) (string, error) {
+// existingID 语义同 IndexKnowledge：非空复用覆盖，为空生成新 ID。
+func (s *VectorStoreService) IndexImageKnowledge(ctx context.Context, robotCode string, docID int64, imageURL, title, description, category, existingID string) (string, error) {
 	if s.imageEmbedding == nil {
 		return "", fmt.Errorf("image embedding service not configured")
 	}
@@ -211,7 +217,10 @@ func (s *VectorStoreService) IndexImageKnowledge(ctx context.Context, robotCode 
 		return "", fmt.Errorf("embed image: %w", err)
 	}
 
-	id := s.qdrant.GenerateID()
+	id := existingID
+	if id == "" {
+		id = s.qdrant.GenerateID()
+	}
 	payload := map[string]*pb.Value{
 		"robot_code":  qdrantx.NewPayloadValue(robotCode),
 		"doc_id":      qdrantx.NewPayloadIntValue(docID),

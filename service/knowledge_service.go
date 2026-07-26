@@ -96,7 +96,8 @@ func (s *KnowledgeService) AddDocument(ctx context.Context, title, content, sour
 	go func() {
 		bgCtx := context.Background()
 		for _, doc := range docs {
-			vectorID, err := s.vectorStore.IndexKnowledge(bgCtx, vars.RobotRuntime.RobotCode, doc.ID, doc.Category, doc.Title, doc.Content)
+			// 新增文档，无既有向量，传空串生成新 ID
+			vectorID, err := s.vectorStore.IndexKnowledge(bgCtx, vars.RobotRuntime.RobotCode, doc.ID, doc.Category, doc.Title, doc.Content, "")
 			if err != nil {
 				log.Printf("[Knowledge] 向量化文档失败 %d: %v", doc.ID, err)
 				continue
@@ -171,7 +172,8 @@ func (s *KnowledgeService) UpdateDocument(ctx context.Context, id int64, title, 
 	go func() {
 		bgCtx := context.Background()
 		for _, d := range docs {
-			vectorID, err := s.vectorStore.IndexKnowledge(bgCtx, vars.RobotRuntime.RobotCode, d.ID, d.Category, d.Title, d.Content)
+			// 旧向量已在上方删除，这里是全新分块，传空串生成新 ID
+			vectorID, err := s.vectorStore.IndexKnowledge(bgCtx, vars.RobotRuntime.RobotCode, d.ID, d.Category, d.Title, d.Content, "")
 			if err != nil {
 				log.Printf("[Knowledge] 向量化文档失败 %d: %v", d.ID, err)
 				continue
@@ -263,7 +265,8 @@ func (s *KnowledgeService) ReindexAll(ctx context.Context) error {
 				continue
 			}
 			for _, chunk := range chunks {
-				vectorID, err := s.vectorStore.IndexKnowledge(ctx, vars.RobotRuntime.RobotCode, chunk.ID, chunk.Category, chunk.Title, chunk.Content)
+				// 重建索引：复用既有 VectorID 覆盖写入，避免残留孤儿向量
+				vectorID, err := s.vectorStore.IndexKnowledge(ctx, vars.RobotRuntime.RobotCode, chunk.ID, chunk.Category, chunk.Title, chunk.Content, chunk.VectorID)
 				if err != nil {
 					log.Printf("[Knowledge] 重建索引失败 %d: %v", chunk.ID, err)
 					continue

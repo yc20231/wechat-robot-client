@@ -63,7 +63,8 @@ func (s *ImageKnowledgeService) AddImageDocument(ctx context.Context, title, des
 	// 异步向量化
 	go func() {
 		bgCtx := context.Background()
-		vectorID, err := s.vectorStore.IndexImageKnowledge(bgCtx, vars.RobotRuntime.RobotCode, doc.ID, doc.ImageURL, doc.Title, doc.Description, doc.Category)
+		// 新增图片，无既有向量，传空串生成新 ID
+		vectorID, err := s.vectorStore.IndexImageKnowledge(bgCtx, vars.RobotRuntime.RobotCode, doc.ID, doc.ImageURL, doc.Title, doc.Description, doc.Category, "")
 		if err != nil {
 			log.Printf("[ImageKnowledge] 向量化图片失败 %d: %v", doc.ID, err)
 			return
@@ -138,7 +139,8 @@ func (s *ImageKnowledgeService) ReindexAll(ctx context.Context) error {
 			return err
 		}
 		for _, doc := range docs {
-			vectorID, err := s.vectorStore.IndexImageKnowledge(ctx, vars.RobotRuntime.RobotCode, doc.ID, doc.ImageURL, doc.Title, doc.Description, doc.Category)
+			// 重建索引：复用既有 VectorID 覆盖写入，避免残留孤儿向量
+			vectorID, err := s.vectorStore.IndexImageKnowledge(ctx, vars.RobotRuntime.RobotCode, doc.ID, doc.ImageURL, doc.Title, doc.Description, doc.Category, doc.VectorID)
 			if err != nil {
 				log.Printf("[ImageKnowledge] 重建索引失败 %d: %v", doc.ID, err)
 				continue

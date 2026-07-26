@@ -20,9 +20,23 @@ func NewKnowledgeController() *Knowledge {
 	return &Knowledge{}
 }
 
+// ensureKnowledgeService 校验文本知识库服务已初始化。
+// AI 配置缺失时 startup.InitRAGService 会把 vars.KnowledgeService 置为 nil 且不中断启动，
+// 此时对该接口变量调用方法会 panic，因此所有入口都必须先检查。
+func ensureKnowledgeService(resp *appx.Response) bool {
+	if vars.KnowledgeService == nil {
+		resp.ToErrorResponse(errors.New("RAG 服务未初始化，请先完成 AI 配置"))
+		return false
+	}
+	return true
+}
+
 // AddDocument 添加知识库文档
 func (k *Knowledge) AddDocument(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req dto.AddKnowledgeDocumentRequest
 	if ok, _ := appx.BindAndValid(c, &req); !ok {
 		resp.ToErrorResponse(errors.New("参数错误"))
@@ -42,6 +56,9 @@ func (k *Knowledge) AddDocument(c *gin.Context) {
 // UpdateDocument 更新知识库文档
 func (k *Knowledge) UpdateDocument(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req dto.UpdateKnowledgeDocumentRequest
 	if ok, _ := appx.BindAndValid(c, &req); !ok {
 		resp.ToErrorResponse(errors.New("参数错误"))
@@ -61,6 +78,9 @@ func (k *Knowledge) UpdateDocument(c *gin.Context) {
 // DeleteDocument 删除知识库文档
 func (k *Knowledge) DeleteDocument(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req dto.DeleteKnowledgeRequest
 	if ok, _ := appx.BindAndValid(c, &req); !ok {
 		resp.ToErrorResponse(errors.New("参数错误"))
@@ -86,6 +106,9 @@ func (k *Knowledge) DeleteDocument(c *gin.Context) {
 // ListDocuments 获取知识库文档列表
 func (k *Knowledge) ListDocuments(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req dto.ListKnowledgeRequest
 	if ok, _ := appx.BindAndValid(c, &req); !ok {
 		resp.ToErrorResponse(errors.New("参数错误"))
@@ -102,6 +125,9 @@ func (k *Knowledge) ListDocuments(c *gin.Context) {
 
 func (k *Knowledge) EnableDocument(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req struct {
 		ID int64 `json:"id" binding:"required"`
 	}
@@ -119,6 +145,9 @@ func (k *Knowledge) EnableDocument(c *gin.Context) {
 
 func (k *Knowledge) DisableDocument(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req struct {
 		ID int64 `json:"id" binding:"required"`
 	}
@@ -137,6 +166,9 @@ func (k *Knowledge) DisableDocument(c *gin.Context) {
 // SearchKnowledge 搜索知识库
 func (k *Knowledge) SearchKnowledge(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
 	var req dto.SearchKnowledgeRequest
 	if ok, _ := appx.BindAndValid(c, &req); !ok {
 		resp.ToErrorResponse(errors.New("参数错误"))
@@ -156,10 +188,18 @@ func (k *Knowledge) SearchKnowledge(c *gin.Context) {
 // ReindexAll 重建知识库索引
 func (k *Knowledge) ReindexAll(c *gin.Context) {
 	resp := appx.NewResponse(c)
+	if !ensureKnowledgeService(resp) {
+		return
+	}
+	// 后台任务不能复用请求 context：请求响应返回时它会立即被取消，
+	// 导致重建在第一次向量写入时就 context canceled。
 	go func() {
-		if err := vars.KnowledgeService.ReindexAll(c.Request.Context()); err != nil {
-			// 异步执行，日志记录即可
+		log.Printf("[Knowledge] 开始重建知识库索引")
+		if err := vars.KnowledgeService.ReindexAll(context.Background()); err != nil {
+			log.Printf("[Knowledge] 重建知识库索引失败: %v", err)
+			return
 		}
+		log.Printf("[Knowledge] 重建知识库索引完成")
 	}()
 	resp.ToResponse("reindex started")
 }
@@ -289,10 +329,14 @@ func (k *Knowledge) ReindexAllImages(c *gin.Context) {
 		resp.ToErrorResponse(errors.New("图片知识库服务未初始化"))
 		return
 	}
+	// 同 ReindexAll：后台任务使用独立 context，避免被请求结束连带取消。
 	go func() {
-		if err := vars.ImageKnowledgeService.ReindexAll(c.Request.Context()); err != nil {
-			// 异步执行，日志记录即可
+		log.Printf("[ImageKnowledge] 开始重建图片知识库索引")
+		if err := vars.ImageKnowledgeService.ReindexAll(context.Background()); err != nil {
+			log.Printf("[ImageKnowledge] 重建图片知识库索引失败: %v", err)
+			return
 		}
+		log.Printf("[ImageKnowledge] 重建图片知识库索引完成")
 	}()
 	resp.ToResponse("image reindex started")
 }
