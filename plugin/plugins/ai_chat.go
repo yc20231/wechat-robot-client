@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 
@@ -314,6 +315,27 @@ func (p *AIChatPlugin) Run(ctx *plugin.MessageContext) {
 	if err != nil {
 		ctx.MessageService.SendTextMessage(ctx.Message.FromWxID, err.Error())
 		return
+	}
+	if ctx.ReferMessage != nil && ctx.ReferMessage.Type == model.MsgTypeImage {
+		question := p.trimAITriggerFromText(ctx.MessageContent, aiTriggerWord)
+		aiConfig := ctx.Settings.GetAIConfig()
+		startedAt := time.Now()
+		recognition, recognitionErr := service.NewAIImageRecognitionService(ctx.Context).Recognize(
+			question,
+			ctx.ReferMessage.AttachmentUrl,
+			aiConfig,
+		)
+		if recognitionErr != nil {
+			log.Printf("[ImageRecognition] 引用图片识别失败: model=%s msg_id=%d err=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, recognitionErr)
+		} else {
+			log.Printf("[ImageRecognition] 引用图片识别完成: model=%s msg_id=%d elapsed=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, time.Since(startedAt))
+		}
+		aiMessages = replaceCurrentAIMessage(aiMessages, buildQuotedImageChatMessages(
+			question,
+			ctx.ReferMessage.AttachmentUrl,
+			recognition,
+			recognitionErr,
+		))
 	}
 	if ctx.Message.IsChatRoom {
 		for index := range aiMessages {
