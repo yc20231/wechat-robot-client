@@ -72,3 +72,15 @@ func TestReplaceCurrentAIMessagePreservesHistoryAndReplacesLatestMessage(t *test
 		t.Fatalf("unexpected replacement result: %s", payload)
 	}
 }
+
+func TestIsImageEditRequestRecognizesRestoreInstruction(t *testing.T) {
+	if !isImageEditRequest("打火机样式与参考图一不一样，请 1:1 还原") {
+		t.Fatal("expected restore instruction to be treated as image editing")
+	}
+}
+
+func TestIsImageEditRequestDoesNotTreatImageQuestionAsEditing(t *testing.T) {
+	if isImageEditRequest("这张图片里有什么？") {
+		t.Fatal("image question should remain on recognition path")
+	}
+}

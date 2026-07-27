@@ -7,6 +7,23 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
+func isImageEditRequest(question string) bool {
+	question = strings.ToLower(strings.TrimSpace(question))
+	if question == "" {
+		return false
+	}
+
+	for _, keyword := range []string{
+		"修改", "编辑", "改成", "换成", "替换", "还原", "重绘", "重新生成",
+		"去掉", "删除", "添加", "增加", "移除", "调整", "修复", "美化", "扩图",
+	} {
+		if strings.Contains(question, keyword) {
+			return true
+		}
+	}
+	return strings.Contains(question, "1:1") || strings.Contains(question, "一比一")
+}
+
 func buildQuotedImageChatMessages(question, imageURL, recognition string, recognitionErr error) []openai.ChatCompletionMessageParamUnion {
 	question = strings.TrimSpace(question)
 	imageURL = strings.TrimSpace(imageURL)

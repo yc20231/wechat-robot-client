@@ -40,9 +40,8 @@ func (a *AttachDownloadService) DownloadImage(messageID int64) ([]byte, string, 
 	return vars.RobotRuntime.DownloadImage(*message)
 }
 
-// DownloadOriginalImage always reads the image from WeChat instead of using
-// an existing OSS attachment URL. Callers that need to avoid OSS traffic
-// should use this method explicitly.
+// DownloadOriginalImage prefers the original WeChat image and falls back to an
+// existing OSS attachment URL when WeChat cannot return the image.
 func (a *AttachDownloadService) DownloadOriginalImage(messageID int64) ([]byte, string, string, error) {
 	message, err := a.msgRepo.GetByID(messageID)
 	if err != nil {
@@ -54,7 +53,39 @@ func (a *AttachDownloadService) DownloadOriginalImage(messageID int64) ([]byte, 
 	if message.Type != model.MsgTypeImage {
 		return nil, "", "", errors.New("消息类型错误")
 	}
-	return vars.RobotRuntime.DownloadImage(*message)
+	return downloadOriginalImageWithFallback(
+		message,
+		func(message model.Message) ([]byte, string, string, error) {
+			return vars.RobotRuntime.DownloadImage(message)
+		},
+		func(imageURL string) ([]byte, string, string, error) {
+			return NewOSSSettingService(a.ctx).downloadFromUrl(imageURL, maxFileSize)
+		},
+	)
+}
+
+func downloadOriginalImageWithFallback(
+	message *model.Message,
+	wechatDownload func(model.Message) ([]byte, string, string, error),
+	ossDownload func(string) ([]byte, string, string, error),
+) ([]byte, string, string, error) {
+	if message == nil {
+		return nil, "", "", errors.New("消息不存在")
+	}
+
+	data, contentType, fileName, err := wechatDownload(*message)
+	if err == nil {
+		return data, contentType, fileName, nil
+	}
+	if message.AttachmentUrl == "" {
+		return nil, "", "", err
+	}
+
+	ossData, ossContentType, ossFileName, ossErr := ossDownload(message.AttachmentUrl)
+	if ossErr != nil {
+		return nil, "", "", fmt.Errorf("微信原图下载失败: %v；OSS回退失败: %w", err, ossErr)
+	}
+	return ossData, ossContentType, ossFileName, nil
 }
 
 func (a *AttachDownloadService) DownloadVoice(req dto.AttachDownloadRequest) ([]byte, string, string, error) {

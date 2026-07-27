@@ -308,21 +308,25 @@ func (p *AIChatPlugin) Run(ctx *plugin.MessageContext) {
 	}
 	if ctx.ReferMessage != nil && ctx.ReferMessage.Type == model.MsgTypeImage {
 		question := p.trimAITriggerFromText(ctx.MessageContent, aiTriggerWord)
-		aiConfig := ctx.Settings.GetAIConfig()
-		startedAt := time.Now()
-		recognition, recognitionErr := service.NewAIImageRecognitionService(ctx.Context).RecognizeMessage(
-			question, ctx.ReferMessage.ID, aiConfig)
-		if recognitionErr != nil {
-			log.Printf("[ImageRecognition] 引用图片识别失败: model=%s msg_id=%d err=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, recognitionErr)
+		if isImageEditRequest(question) {
+			log.Printf("[ImageRecognition] 引用图片修改请求，跳过普通图片识别: msg_id=%d", ctx.ReferMessage.MsgId)
 		} else {
-			log.Printf("[ImageRecognition] 引用图片识别完成: model=%s msg_id=%d elapsed=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, time.Since(startedAt))
+			aiConfig := ctx.Settings.GetAIConfig()
+			startedAt := time.Now()
+			recognition, recognitionErr := service.NewAIImageRecognitionService(ctx.Context).RecognizeMessage(
+				question, ctx.ReferMessage.ID, aiConfig)
+			if recognitionErr != nil {
+				log.Printf("[ImageRecognition] 引用图片识别失败: model=%s msg_id=%d err=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, recognitionErr)
+			} else {
+				log.Printf("[ImageRecognition] 引用图片识别完成: model=%s msg_id=%d elapsed=%v", aiConfig.ImageRecognitionModel, ctx.ReferMessage.MsgId, time.Since(startedAt))
+			}
+			aiMessages = replaceCurrentAIMessage(aiMessages, buildQuotedImageChatMessages(
+				question,
+				ctx.ReferMessage.AttachmentUrl,
+				recognition,
+				recognitionErr,
+			))
 		}
-		aiMessages = replaceCurrentAIMessage(aiMessages, buildQuotedImageChatMessages(
-			question,
-			ctx.ReferMessage.AttachmentUrl,
-			recognition,
-			recognitionErr,
-		))
 	}
 	if ctx.Message.IsChatRoom {
 		for index := range aiMessages {
