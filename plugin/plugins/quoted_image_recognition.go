@@ -16,6 +16,9 @@ func isImageEditRequest(question string) bool {
 	for _, keyword := range []string{
 		"修改", "编辑", "改成", "换成", "替换", "还原", "重绘", "重新生成",
 		"去掉", "删除", "添加", "增加", "移除", "调整", "修复", "美化", "扩图",
+		"做一张", "做电商主图", "做产品主图", "做商品主图", "做宣传图", "做海报",
+		"制作一张", "制作电商主图", "制作产品主图", "制作宣传图",
+		"生成一张", "生成图片", "生成主图",
 	} {
 		if strings.Contains(question, keyword) {
 			return true

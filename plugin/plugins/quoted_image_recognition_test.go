@@ -79,8 +79,22 @@ func TestIsImageEditRequestRecognizesRestoreInstruction(t *testing.T) {
 	}
 }
 
+func TestIsImageEditRequestRecognizesQuotedImageCreationRequests(t *testing.T) {
+	for _, question := range []string{
+		"做一张适用于这个产品的电商主图",
+		"参考这张图制作一张宣传图",
+	} {
+		if !isImageEditRequest(question) {
+			t.Fatalf("expected %q to be treated as image editing", question)
+		}
+	}
+}
+
 func TestIsImageEditRequestDoesNotTreatImageQuestionAsEditing(t *testing.T) {
 	if isImageEditRequest("这张图片里有什么？") {
 		t.Fatal("image question should remain on recognition path")
+	}
+	if isImageEditRequest("这张图片是什么时候生成的？") {
+		t.Fatal("image metadata question should remain on recognition path")
 	}
 }
