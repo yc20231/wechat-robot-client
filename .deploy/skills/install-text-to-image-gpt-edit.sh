@@ -39,6 +39,17 @@ curl -fsSL "$upstream_base/scripts/text_to_image.py" -o "$stage_dir/scripts/text
 )
 python3 -m py_compile "$stage_dir/scripts/text_to_image.py"
 
+# The image workflow must follow the ChatGPT-style direct execution behavior.
+# Fail closed if an upstream/patch combination reintroduces the legacy A/B gate.
+if grep -Fq '你想要哪种风格？A. 白底商品图' "$stage_dir/SKILL.md"; then
+  echo "检测到旧版图片 Skill 的 A/B 风格询问逻辑，拒绝安装" >&2
+  exit 1
+fi
+if ! grep -Fq '不得再询问 A/B' "$stage_dir/SKILL.md"; then
+  echo "图片 Skill 缺少 ChatGPT 风格的直接执行规则，拒绝安装" >&2
+  exit 1
+fi
+
 cp -p "$skill_dir/SKILL.md" "$backup_dir/SKILL.md"
 cp -p "$skill_dir/scripts/text_to_image.py" "$backup_dir/scripts/text_to_image.py"
 

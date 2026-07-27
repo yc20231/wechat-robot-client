@@ -57,14 +57,14 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: natural-language image requests passed to the AI agent.
-- Produces: either one clarification question or a script call whose prompt contains only user-approved visual constraints.
+- Produces: a script call whose prompt contains the current user's visual constraints.
 
 - [ ] **Step 1: Update Skill instructions**
 
-Add rules that classify explicit white-background requests, explicit promotional requests, and ambiguous “e-commerce main image” requests. For the ambiguous class, ask exactly:
+Add rules that classify explicit white-background requests, explicit promotional requests, and ambiguous “e-commerce main image” requests. Execute all classes directly without asking a style question:
 
 ```text
-你想要哪种风格？A. 白底商品图，适合平台上架；B. 有背景和卖点文案的电商宣传图
+直接按当前请求执行，不询问 A/B；未明确指定时由 Skill 根据图片和文字意图自然完成构图。
 ```
 
 State that the Skill must not invent pure-white background or “no copy/icons” constraints.
@@ -122,6 +122,4 @@ Expected: exit code 0 and an `ELF 64-bit x86-64` executable.
 
 - [x] Store the quoted target image ID and original request in Redis with a 5-minute TTL.
 - [x] Isolate keys by robot, conversation, and sender.
-- [x] Parse `A`, `选择A`, `B`, and `B，有背景和卖点文案`.
-- [x] Restore the image reference for a plain-text A/B response and delete the pending state.
-- [x] Preserve compatibility when the user repeats the image quote while choosing A/B.
+- [x] Remove the legacy A/B style-choice flow.
