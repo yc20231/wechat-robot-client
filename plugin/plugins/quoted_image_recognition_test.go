@@ -99,51 +99,61 @@ func TestIsImageEditRequestDoesNotTreatImageQuestionAsEditing(t *testing.T) {
 	}
 }
 
-func TestIsAmbiguousEcommerceImageRequest(t *testing.T) {
+func TestShouldBindRecentImageForExplicitReferenceRequest(t *testing.T) {
 	for _, question := range []string{
 		"参考这张图，做一张适用于这个产品的电商主图",
-		"帮我做个产品主图",
+		"用刚发的图做一张海报",
+		"基于上面那张图片换个背景",
 	} {
-		if !isAmbiguousEcommerceImageRequest(question) {
-			t.Fatalf("expected %q to require a style choice", question)
+		if !shouldBindRecentImageForRequest(question) {
+			t.Fatalf("expected %q to bind the latest image", question)
 		}
 	}
 
 	for _, question := range []string{
-		"做一张白底商品主图",
-		"做一张有背景和卖点文案的电商宣传图",
+		"画一只猫",
+		"做一张电商主图",
 		"这张图片里有什么",
 	} {
-		if isAmbiguousEcommerceImageRequest(question) {
-			t.Fatalf("did not expect %q to require a style choice", question)
+		if shouldBindRecentImageForRequest(question) {
+			t.Fatalf("did not expect %q to bind the latest image", question)
 		}
 	}
 }
 
-func TestParseEcommerceStyleChoice(t *testing.T) {
-	tests := map[string]string{
-		"A":          ecommerceStyleWhiteBackground,
-		"选择A":        ecommerceStyleWhiteBackground,
-		"B":          ecommerceStylePromotional,
-		"B，有背景和卖点文案": ecommerceStylePromotional,
+func TestImageTaskContextIsolation(t *testing.T) {
+	if !shouldIsolateImageTaskContext("参考这张图，做一张海报") {
+		t.Fatal("new referenced image task should isolate older chat context")
 	}
-	for input, want := range tests {
-		got, ok := parseEcommerceStyleChoice(input)
-		if !ok || got != want {
-			t.Fatalf("parseEcommerceStyleChoice(%q) = (%q, %v), want (%q, true)", input, got, ok, want)
-		}
+	if !shouldIsolateImageTaskContext("画一只猫") {
+		t.Fatal("new unreferenced image task should isolate older chat context")
 	}
-	if _, ok := parseEcommerceStyleChoice("这张图片里有什么"); ok {
-		t.Fatal("ordinary image question should not be parsed as a style choice")
+	if !shouldIsolateImageTaskContext("生成一张海报") {
+		t.Fatal("new unreferenced image generation should isolate older chat context")
+	}
+	if shouldIsolateImageTaskContext("继续刚才那张图，文字改大一点") {
+		t.Fatal("explicit continuation should keep older chat context")
 	}
 }
 
-func TestBuildEcommerceStyleRequestPreservesOriginalAndMakesStyleExplicit(t *testing.T) {
-	original := "参考这张图，做一张适用于这个产品的电商主图"
-	got := buildEcommerceStyleRequest(original, ecommerceStylePromotional)
-	for _, want := range []string{original, "有背景和卖点文案", "不得使用纯白背景"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("request %q does not contain %q", got, want)
+func TestImageQuestionDoesNotEnterEditRouting(t *testing.T) {
+	for _, question := range []string{
+		"参考图里有什么？",
+		"参考这张图分析一下产品结构",
+		"基于这张图告诉我产品是什么材质",
+	} {
+		if isImageEditRequest(question) {
+			t.Fatalf("did not expect %q to enter image edit routing", question)
+		}
+	}
+
+	for _, question := range []string{
+		"参考这张图做一张海报",
+		"基于这张图换个背景",
+		"用这张图片生成产品主图",
+	} {
+		if !isImageEditRequest(question) {
+			t.Fatalf("expected %q to enter image edit routing", question)
 		}
 	}
 }

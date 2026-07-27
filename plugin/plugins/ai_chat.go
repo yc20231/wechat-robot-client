@@ -295,23 +295,48 @@ func (p *AIChatPlugin) chatMessageText(message openai.ChatCompletionMessageParam
 	}
 }
 
-func (p *AIChatPlugin) Run(ctx *plugin.MessageContext) {
-	aiTriggerWord := ctx.Settings.GetAITriggerWord()
-	if p.prepareEcommerceStyleFlow(ctx, aiTriggerWord) {
+func (p *AIChatPlugin) bindRecentImageReference(ctx *plugin.MessageContext, question string) {
+	if ctx == nil || ctx.Message == nil || ctx.MessageService == nil || ctx.ReferMessage != nil {
 		return
 	}
+	if !shouldBindRecentImageForRequest(question) {
+		return
+	}
+	referMessage, err := ctx.MessageService.GetLatestImageMessageBefore(ctx.Message, 5*time.Minute)
+	if err != nil {
+		log.Printf("[ImageReference] 自动绑定最近图片失败: from=%s sender=%s err=%v", ctx.Message.FromWxID, ctx.Message.SenderWxID, err)
+		return
+	}
+	if referMessage == nil {
+		log.Printf("[ImageReference] 未找到可绑定的最近图片: from=%s sender=%s", ctx.Message.FromWxID, ctx.Message.SenderWxID)
+		return
+	}
+	ctx.ReferMessage = referMessage
+	log.Printf("[ImageReference] 已自动绑定最近图片: msg_id=%d from=%s sender=%s", referMessage.MsgId, ctx.Message.FromWxID, ctx.Message.SenderWxID)
+}
+
+func (p *AIChatPlugin) Run(ctx *plugin.MessageContext) {
+	aiTriggerWord := ctx.Settings.GetAITriggerWord()
+	question := p.trimAITriggerFromText(ctx.MessageContent, aiTriggerWord)
+	p.bindRecentImageReference(ctx, question)
+	imageTaskRequest := isImageTaskRequest(question)
 	if !p.PreAction(ctx) {
 		return
 	}
 
-	aiMessages, err := ctx.MessageService.GetAIMessageContext(ctx.Message)
-	if err != nil {
-		ctx.MessageService.SendTextMessage(ctx.Message.FromWxID, err.Error())
-		return
+	var aiMessages []openai.ChatCompletionMessageParamUnion
+	if imageTaskRequest && shouldIsolateImageTaskContext(question) {
+		aiMessages = []openai.ChatCompletionMessageParamUnion{openai.UserMessage(question)}
+	} else {
+		var err error
+		aiMessages, err = ctx.MessageService.GetAIMessageContext(ctx.Message)
+		if err != nil {
+			ctx.MessageService.SendTextMessage(ctx.Message.FromWxID, err.Error())
+			return
+		}
 	}
 	if ctx.ReferMessage != nil && ctx.ReferMessage.Type == model.MsgTypeImage {
-		question := p.trimAITriggerFromText(ctx.MessageContent, aiTriggerWord)
-		if isImageEditRequest(question) {
+		if imageTaskRequest {
 			log.Printf("[ImageRecognition] 引用图片修改请求，跳过普通图片识别: msg_id=%d", ctx.ReferMessage.MsgId)
 		} else {
 			aiConfig := ctx.Settings.GetAIConfig()

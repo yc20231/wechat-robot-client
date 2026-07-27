@@ -7,62 +7,6 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-const (
-	ecommerceStyleWhiteBackground = "A"
-	ecommerceStylePromotional     = "B"
-	ecommerceStyleQuestion        = "你想要哪种风格？\nA. 白底商品图，适合平台上架\nB. 有背景和卖点文案的电商宣传图"
-)
-
-func isAmbiguousEcommerceImageRequest(question string) bool {
-	question = strings.ToLower(strings.TrimSpace(question))
-	if question == "" {
-		return false
-	}
-
-	hasGenericIntent := false
-	for _, keyword := range []string{"电商主图", "产品主图", "商品主图", "商品图"} {
-		if strings.Contains(question, keyword) {
-			hasGenericIntent = true
-			break
-		}
-	}
-	if !hasGenericIntent {
-		return false
-	}
-
-	for _, keyword := range []string{
-		"白底", "纯白", "抠图", "平台上架",
-		"宣传图", "促销", "场景", "卖点", "文案", "海报", "背景", "不要白底", "非白底",
-	} {
-		if strings.Contains(question, keyword) {
-			return false
-		}
-	}
-	return true
-}
-
-func parseEcommerceStyleChoice(content string) (string, bool) {
-	content = strings.ToUpper(strings.TrimSpace(content))
-	for _, prefix := range []string{"选择", "选"} {
-		content = strings.TrimSpace(strings.TrimPrefix(content, prefix))
-	}
-	if content == ecommerceStyleWhiteBackground || strings.HasPrefix(content, ecommerceStyleWhiteBackground+"，") || strings.HasPrefix(content, ecommerceStyleWhiteBackground+",") || strings.HasPrefix(content, ecommerceStyleWhiteBackground+"：") || strings.HasPrefix(content, ecommerceStyleWhiteBackground+":") {
-		return ecommerceStyleWhiteBackground, true
-	}
-	if content == ecommerceStylePromotional || strings.HasPrefix(content, ecommerceStylePromotional+"，") || strings.HasPrefix(content, ecommerceStylePromotional+",") || strings.HasPrefix(content, ecommerceStylePromotional+"：") || strings.HasPrefix(content, ecommerceStylePromotional+":") {
-		return ecommerceStylePromotional, true
-	}
-	return "", false
-}
-
-func buildEcommerceStyleRequest(originalRequest, style string) string {
-	originalRequest = strings.TrimSpace(originalRequest)
-	if style == ecommerceStyleWhiteBackground {
-		return originalRequest + "\n用户已选择 A：制作白底商品图，适合平台上架。使用干净纯白背景，产品完整清晰，保留产品真实外观和已有文字。"
-	}
-	return originalRequest + "\n用户已选择 B：制作有背景和卖点文案的电商宣传图。不得使用纯白背景；保留产品真实外观和已有文字，不得虚构品牌、型号或参数。"
-}
-
 func isImageEditRequest(question string) bool {
 	question = strings.ToLower(strings.TrimSpace(question))
 	if question == "" {
@@ -70,17 +14,60 @@ func isImageEditRequest(question string) bool {
 	}
 
 	for _, keyword := range []string{
-		"修改", "编辑", "改成", "换成", "替换", "还原", "重绘", "重新生成",
+		"修改", "编辑", "改成", "换成", "替换", "换背景", "换个背景", "替换背景", "还原", "重绘", "重新生成",
 		"去掉", "删除", "添加", "增加", "移除", "调整", "修复", "美化", "扩图",
 		"做一张", "做电商主图", "做产品主图", "做商品主图", "做宣传图", "做海报",
 		"制作一张", "制作电商主图", "制作产品主图", "制作宣传图",
-		"生成一张", "生成图片", "生成主图",
+		"生成一张", "生成图片", "生成主图", "生成产品主图", "生成商品主图", "生成海报",
+		"画一", "绘制", "创作一张", "设计一张",
 	} {
 		if strings.Contains(question, keyword) {
 			return true
 		}
 	}
 	return strings.Contains(question, "1:1") || strings.Contains(question, "一比一")
+}
+
+func isImageTaskRequest(question string) bool {
+	question = strings.ToLower(strings.TrimSpace(question))
+	if question == "" {
+		return false
+	}
+	return isImageEditRequest(question)
+}
+
+func shouldBindRecentImageForRequest(question string) bool {
+	question = strings.ToLower(strings.TrimSpace(question))
+	if question == "" || !isImageEditRequest(question) {
+		return false
+	}
+	for _, keyword := range []string{
+		"参考这张图", "参考这张图片", "参考上图", "参考上面", "参考刚发",
+		"用这张图", "用这张图片", "用上图", "用上面", "用刚发",
+		"基于这张图", "基于这张图片", "基于上图", "基于上面", "基于上面那张图片",
+		"这张图", "这张图片", "上面那张", "刚发的图", "刚才那张",
+	} {
+		if strings.Contains(question, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldIsolateImageTaskContext(question string) bool {
+	question = strings.ToLower(strings.TrimSpace(question))
+	if question == "" || !isImageTaskRequest(question) {
+		return false
+	}
+	for _, keyword := range []string{
+		"继续", "接着", "沿用", "保持刚才", "上一张基础", "上一次基础", "刚才那张基础",
+		"在刚才", "在上一张", "基于上一张结果", "基于刚才结果",
+	} {
+		if strings.Contains(question, keyword) {
+			return false
+		}
+	}
+	return true
 }
 
 func buildQuotedImageChatMessages(question, imageURL, recognition string, recognitionErr error) []openai.ChatCompletionMessageParamUnion {

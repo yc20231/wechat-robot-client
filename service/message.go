@@ -2295,6 +2295,13 @@ func (s *MessageService) GetChatRoomAIMessageContext(message *model.Message) ([]
 	return s.ProcessAIMessageContext(messages), nil
 }
 
+func (s *MessageService) GetLatestImageMessageBefore(message *model.Message, within time.Duration) (*model.Message, error) {
+	if within <= 0 {
+		within = 5 * time.Minute
+	}
+	return s.msgRepo.GetLatestImageMessageBefore(message, time.Now().Add(-within).Unix())
+}
+
 func (s *MessageService) UpdateMessage(message *model.Message) error {
 	return s.msgRepo.Update(message)
 }

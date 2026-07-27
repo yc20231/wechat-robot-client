@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"mime/multipart"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 
@@ -32,6 +33,7 @@ type MessageServiceIface interface {
 	ShareLink(toWxID string, shareLinkInfo robot.ShareLinkMessage) error
 	ResetChatRoomAIMessageContext(message *model.Message) error
 	GetAIMessageContext(message *model.Message) ([]openai.ChatCompletionMessageParamUnion, error)
+	GetLatestImageMessageBefore(message *model.Message, within time.Duration) (*model.Message, error)
 	SetMessageIsInContext(message *model.Message) error
 	XmlDecoder(content string) (robot.XmlMessage, error)
 	UpdateMessage(message *model.Message) error

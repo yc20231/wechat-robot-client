@@ -47,6 +47,35 @@ func (m *Message) GetByMsgID(msgId int64) (*model.Message, error) {
 	return &message, nil
 }
 
+func (m *Message) GetLatestImageMessageBefore(message *model.Message, since int64) (*model.Message, error) {
+	if message == nil || message.ID <= 0 {
+		return nil, nil
+	}
+	query := m.DB.WithContext(m.Ctx).
+		Where("id < ?", message.ID).
+		Where("from_wxid = ?", message.FromWxID).
+		Where("type = ?", model.MsgTypeImage).
+		Where("created_at >= ?", since)
+
+	requesterWxID := strings.TrimSpace(message.SenderWxID)
+	if requesterWxID == "" {
+		requesterWxID = strings.TrimSpace(message.FromWxID)
+	}
+	if requesterWxID != "" {
+		query = query.Where("sender_wxid = ?", requesterWxID)
+	}
+
+	var latest model.Message
+	err := query.Order("id DESC").First(&latest).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &latest, nil
+}
+
 func (m *Message) GetByContactID(req dto.ChatHistoryRequest, pager appx.Pager) ([]*model.Message, int64, error) {
 	var messages []*model.Message
 	var total int64
