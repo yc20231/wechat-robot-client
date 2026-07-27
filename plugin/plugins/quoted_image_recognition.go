@@ -7,6 +7,62 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
+const (
+	ecommerceStyleWhiteBackground = "A"
+	ecommerceStylePromotional     = "B"
+	ecommerceStyleQuestion        = "你想要哪种风格？\nA. 白底商品图，适合平台上架\nB. 有背景和卖点文案的电商宣传图"
+)
+
+func isAmbiguousEcommerceImageRequest(question string) bool {
+	question = strings.ToLower(strings.TrimSpace(question))
+	if question == "" {
+		return false
+	}
+
+	hasGenericIntent := false
+	for _, keyword := range []string{"电商主图", "产品主图", "商品主图", "商品图"} {
+		if strings.Contains(question, keyword) {
+			hasGenericIntent = true
+			break
+		}
+	}
+	if !hasGenericIntent {
+		return false
+	}
+
+	for _, keyword := range []string{
+		"白底", "纯白", "抠图", "平台上架",
+		"宣传图", "促销", "场景", "卖点", "文案", "海报", "背景", "不要白底", "非白底",
+	} {
+		if strings.Contains(question, keyword) {
+			return false
+		}
+	}
+	return true
+}
+
+func parseEcommerceStyleChoice(content string) (string, bool) {
+	content = strings.ToUpper(strings.TrimSpace(content))
+	for _, prefix := range []string{"选择", "选"} {
+		content = strings.TrimSpace(strings.TrimPrefix(content, prefix))
+	}
+	if content == ecommerceStyleWhiteBackground || strings.HasPrefix(content, ecommerceStyleWhiteBackground+"，") || strings.HasPrefix(content, ecommerceStyleWhiteBackground+",") || strings.HasPrefix(content, ecommerceStyleWhiteBackground+"：") || strings.HasPrefix(content, ecommerceStyleWhiteBackground+":") {
+		return ecommerceStyleWhiteBackground, true
+	}
+	if content == ecommerceStylePromotional || strings.HasPrefix(content, ecommerceStylePromotional+"，") || strings.HasPrefix(content, ecommerceStylePromotional+",") || strings.HasPrefix(content, ecommerceStylePromotional+"：") || strings.HasPrefix(content, ecommerceStylePromotional+":") {
+		return ecommerceStylePromotional, true
+	}
+	return "", false
+}
+
+func buildEcommerceStyleRequest(originalRequest, style string) string {
+	originalRequest = strings.TrimSpace(originalRequest)
+	if style == ecommerceStyleWhiteBackground {
+		return originalRequest + "\n用户已选择 A：制作白底商品图，适合平台上架。使用干净纯白背景，产品完整清晰，保留产品真实外观和已有文字。"
+	}
+	return originalRequest + "\n用户已选择 B：制作有背景和卖点文案的电商宣传图。不得使用纯白背景；保留产品真实外观和已有文字，不得虚构品牌、型号或参数。"
+}
+
 func isImageEditRequest(question string) bool {
 	question = strings.ToLower(strings.TrimSpace(question))
 	if question == "" {

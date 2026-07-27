@@ -108,3 +108,20 @@ GOMAXPROCS=2 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 ```
 
 Expected: exit code 0 and an `ELF 64-bit x86-64` executable.
+
+### Task 4: Persist A/B Image Choices
+
+**Files:**
+- Create: `plugin/plugins/pending_ecommerce_image.go`
+- Create: `plugin/plugins/pending_ecommerce_image_test.go`
+- Modify: `plugin/plugins/ai_chat.go`
+
+**Interfaces:**
+- Consumes: an ambiguous quoted-image request followed within 5 minutes by an A/B message from the same sender and conversation.
+- Produces: a restored image reference and explicit image-edit request passed to the existing AI Skill flow.
+
+- [x] Store the quoted target image ID and original request in Redis with a 5-minute TTL.
+- [x] Isolate keys by robot, conversation, and sender.
+- [x] Parse `A`, `选择A`, `B`, and `B，有背景和卖点文案`.
+- [x] Restore the image reference for a plain-text A/B response and delete the pending state.
+- [x] Preserve compatibility when the user repeats the image quote while choosing A/B.

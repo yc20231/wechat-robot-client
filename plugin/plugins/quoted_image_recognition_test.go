@@ -98,3 +98,52 @@ func TestIsImageEditRequestDoesNotTreatImageQuestionAsEditing(t *testing.T) {
 		t.Fatal("image metadata question should remain on recognition path")
 	}
 }
+
+func TestIsAmbiguousEcommerceImageRequest(t *testing.T) {
+	for _, question := range []string{
+		"参考这张图，做一张适用于这个产品的电商主图",
+		"帮我做个产品主图",
+	} {
+		if !isAmbiguousEcommerceImageRequest(question) {
+			t.Fatalf("expected %q to require a style choice", question)
+		}
+	}
+
+	for _, question := range []string{
+		"做一张白底商品主图",
+		"做一张有背景和卖点文案的电商宣传图",
+		"这张图片里有什么",
+	} {
+		if isAmbiguousEcommerceImageRequest(question) {
+			t.Fatalf("did not expect %q to require a style choice", question)
+		}
+	}
+}
+
+func TestParseEcommerceStyleChoice(t *testing.T) {
+	tests := map[string]string{
+		"A":          ecommerceStyleWhiteBackground,
+		"选择A":        ecommerceStyleWhiteBackground,
+		"B":          ecommerceStylePromotional,
+		"B，有背景和卖点文案": ecommerceStylePromotional,
+	}
+	for input, want := range tests {
+		got, ok := parseEcommerceStyleChoice(input)
+		if !ok || got != want {
+			t.Fatalf("parseEcommerceStyleChoice(%q) = (%q, %v), want (%q, true)", input, got, ok, want)
+		}
+	}
+	if _, ok := parseEcommerceStyleChoice("这张图片里有什么"); ok {
+		t.Fatal("ordinary image question should not be parsed as a style choice")
+	}
+}
+
+func TestBuildEcommerceStyleRequestPreservesOriginalAndMakesStyleExplicit(t *testing.T) {
+	original := "参考这张图，做一张适用于这个产品的电商主图"
+	got := buildEcommerceStyleRequest(original, ecommerceStylePromotional)
+	for _, want := range []string{original, "有背景和卖点文案", "不得使用纯白背景"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("request %q does not contain %q", got, want)
+		}
+	}
+}

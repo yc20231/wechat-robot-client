@@ -296,11 +296,14 @@ func (p *AIChatPlugin) chatMessageText(message openai.ChatCompletionMessageParam
 }
 
 func (p *AIChatPlugin) Run(ctx *plugin.MessageContext) {
+	aiTriggerWord := ctx.Settings.GetAITriggerWord()
+	if p.prepareEcommerceStyleFlow(ctx, aiTriggerWord) {
+		return
+	}
 	if !p.PreAction(ctx) {
 		return
 	}
 
-	aiTriggerWord := ctx.Settings.GetAITriggerWord()
 	aiMessages, err := ctx.MessageService.GetAIMessageContext(ctx.Message)
 	if err != nil {
 		ctx.MessageService.SendTextMessage(ctx.Message.FromWxID, err.Error())
