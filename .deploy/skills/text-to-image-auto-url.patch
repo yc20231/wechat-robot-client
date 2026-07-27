@@ -1,0 +1,101 @@
+--- a/scripts/text_to_image.py
++++ b/scripts/text_to_image.py
+@@ -121,6 +121,17 @@ def _image_message_exists(conn, message_id: int) -> bool:
+     return row is not None
+ 
+ 
++def _image_message_url(conn, message_id: int) -> str:
++    if message_id <= 0:
++        return ""
++    row = _query_one(
++        conn,
++        "SELECT attachment_url FROM messages WHERE id = %s AND type = 3 LIMIT 1",
++        (message_id,),
++    )
++    return str((row or {}).get("attachment_url") or "").strip()
++
++
+ def _query_all(conn, sql: str, params: tuple = ()) -> list[dict]:
+     cur = conn.cursor()
+     cur.execute(sql, params)
+@@ -721,10 +732,15 @@ def call_openai_edit(
+     ratio: str,
+     resolution: str,
+     image_paths: list[str],
++    image_urls: list[str],
+ ) -> list[str]:
+     """Edit one image or compose multiple reference images with GPT Image."""
+     if not image_paths:
+         raise RuntimeError("图片编辑缺少输入图片")
++    from text_to_image_edit_transport import (
++        post_image_url_edit,
++        should_retry_with_image_url,
++    )
+ 
+     client = _openai_client(config)
+     output_format = _openai_output_format(config)
+@@ -741,19 +759,41 @@ def call_openai_edit(
+             f"\n\n用户编辑要求：{edit_prompt}"
+         )
+ 
++    mode = str(config.get("edit_input_mode", "auto") or "auto").strip().lower()
++    if mode not in {"auto", "file", "url"}:
++        raise RuntimeError("OpenAI edit_input_mode 只支持 auto、file 或 url")
+     kwargs = {
+         "model": model or "gpt-image-2",
+         "prompt": edit_prompt,
+         "n": _coerce_int(config.get("n"), 1, 1, 10),
+         "size": _openai_compatible_size(config, ratio, image_paths[0]),
+         "quality": str(config.get("quality", "auto") or "auto"),
+         "output_format": output_format,
+     }
+ 
+-    with ExitStack() as stack:
+-        handles = [stack.enter_context(open(path, "rb")) for path in image_paths]
+-        kwargs["image"] = handles[0] if len(handles) == 1 else handles
+-        response = client.images.edit(**kwargs)
++    def call_with_url():
++        return post_image_url_edit(
++            config,
++            model=kwargs["model"],
++            prompt=edit_prompt,
++            image_urls=image_urls,
++            n=kwargs["n"],
++            size=kwargs["size"],
++            quality=kwargs["quality"],
++        )
++
++    if mode == "url":
++        response = call_with_url()
++    else:
++        try:
++            with ExitStack() as stack:
++                handles = [stack.enter_context(open(path, "rb")) for path in image_paths]
++                kwargs["image"] = handles[0] if len(handles) == 1 else handles
++                response = client.images.edit(**kwargs)
++        except Exception as error:
++            if not should_retry_with_image_url(mode, error, len(image_paths)):
++                raise
++            response = call_with_url()
+ 
+     _debug_response("openai images.edit response", response)
+     return _openai_images_from_response(response, output_format)
+@@ -831,6 +874,10 @@ def main() -> int:
+                 target_message_id,
+                 reference_count,
+             )
++        input_image_urls = [_image_message_url(conn, target_message_id)] if target_message_id else []
++        input_image_urls.extend(
++            _image_message_url(conn, message_id) for message_id in reference_message_ids
++        )
+     except Exception as exc:
+         conn.close()
+         sys.stdout.write(f"加载绘图配置失败: {exc}\n")
+@@ -879,6 +926,7 @@ def main() -> int:
+                     ratio,
+                     resolution,
+                     input_image_paths,
++                    input_image_urls,
+                 )
+             else:
+                 image_urls = call_openai(openai_config, prompt, model, negative_prompt, ratio, resolution)

@@ -693,12 +693,15 @@ docker restart client_xiW55bPyM3D4o6s6 >/dev/null
     "base_url": "https://中转站地址/v1",
     "api_key": "不要写入文档或 Git",
     "model": "gpt-image-2",
+    "edit_input_mode": "auto",
     "n": 1
   },
   "default_model": "gpt-image-2",
   "output_count": 1
 }
 ```
+
+`OpenAI.edit_input_mode` 支持 `auto`、`file` 和 `url`，默认使用 `auto`。`auto` 先按标准 OpenAI multipart 文件方式编辑；只有上游明确要求 `image_url` 时，才使用消息中已持久化的 OSS 公网地址重试一次。额度、鉴权、内容策略和超时错误不会重试。URL 模式暂不猜测未文档化的多图参数，多图仍要求中转站支持标准文件上传。
 
 `OpenAI.size` 可以省略或设为 `auto`。Skill 不会把 `size=auto` 直接发送给中转站：文生图会按用户指定的比例选择兼容尺寸；引用图片编辑未指定比例时，会读取目标 PNG/JPEG 的宽高并自动选择 `1024x1536`、`1536x1024` 或 `1024x1024`。只有明确配置非 `auto` 的 `size` 时才固定使用该尺寸。
 
