@@ -15,19 +15,23 @@ const (
 )
 
 type Config struct {
-	Enabled           bool     `json:"enabled"`
-	Cron              string   `json:"cron"`
-	TargetChatRoomID  string   `json:"target_chat_room_id,omitempty"`
+	Enabled           bool    `json:"enabled"`
+	Cron              string  `json:"cron"`
+	TargetChatRoomID  string  `json:"target_chat_room_id,omitempty"`
 	TargetChatRoomIDs []string `json:"target_chat_room_ids,omitempty"`
-	SendOnWeekends    bool     `json:"send_on_weekends"`
-	TestToken         string   `json:"test_token"`
-	TopicsFile        string   `json:"topics_file"`
+	SendOnWeekends    bool    `json:"send_on_weekends"`
+	TestToken         string  `json:"test_token"`
+	TopicsFile        string  `json:"topics_file"`
+	WeatherEnabled    bool    `json:"weather_enabled"`
+	WeatherCityCode   string  `json:"weather_city_code"`
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Cron:           "0 8 * * *",
-		SendOnWeekends: true,
+		Cron:            "0 8 * * *",
+		SendOnWeekends:  true,
+		WeatherEnabled:  true,
+		WeatherCityCode: "101230501", // 中国天气网 泉州
 	}
 }
 

@@ -14,6 +14,8 @@ type Topic struct {
 	Focus  string    `json:"focus"`
 	Points [3]string `json:"points"`
 	Slogan string    `json:"slogan"`
+	// Tag 非空表示天气触发的插播专题(rain/heat)，不参与常规轮换
+	Tag string `json:"tag,omitempty"`
 }
 
 type PosterContent struct {
@@ -58,8 +60,9 @@ func LoadTopics(path string) ([]Topic, error) {
 }
 
 func ContentForDate(date time.Time, topics []Topic) (PosterContent, error) {
+	topics = NormalTopics(topics)
 	if len(topics) == 0 {
-		return PosterContent{}, fmt.Errorf("安全提醒主题库不能为空")
+		return PosterContent{}, fmt.Errorf("安全提醒常规主题库不能为空")
 	}
 	topic := topics[cycleIndexForDate(date, len(topics))]
 	return PosterContent{
@@ -68,6 +71,41 @@ func ContentForDate(date time.Time, topics []Topic) (PosterContent, error) {
 		Points: topic.Points,
 		Slogan: topic.Slogan,
 	}, nil
+}
+
+// NormalTopics 过滤掉天气插播专题，仅保留常规轮换条目。
+func NormalTopics(topics []Topic) []Topic {
+	out := make([]Topic, 0, len(topics))
+	for _, topic := range topics {
+		if topic.Tag == "" {
+			out = append(out, topic)
+		}
+	}
+	return out
+}
+
+// ContentForWeather 天气优先选题: 恶劣天气插播对应专题(同类内部按天轮换)，否则走常规轮换。
+func ContentForWeather(date time.Time, topics []Topic, weather *Weather) PosterContent {
+	kind := weather.Kind()
+	if kind != "" {
+		pool := make([]Topic, 0, 2)
+		for _, topic := range topics {
+			if topic.Tag == kind {
+				pool = append(pool, topic)
+			}
+		}
+		if len(pool) > 0 {
+			topic := pool[cycleIndexForDate(date, len(pool))]
+			return PosterContent{
+				Date:   date,
+				Focus:  topic.Focus,
+				Points: topic.Points,
+				Slogan: topic.Slogan,
+			}
+		}
+	}
+	content, _ := ContentForDate(date, topics)
+	return content
 }
 
 func cycleIndexForDate(date time.Time, cycleLength int) int {

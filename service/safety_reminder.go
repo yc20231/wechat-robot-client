@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"wechat-robot-client/pkg/safetyreminder"
@@ -38,7 +39,20 @@ func (s *SafetyReminderService) Preview(date time.Time, topicsFile string) ([]by
 	if err != nil {
 		return nil, safetyreminder.PosterContent{}, err
 	}
-	content, err := safetyreminder.ContentForDate(date, topics)
+	var content safetyreminder.PosterContent
+	if config, cfgErr := safetyreminder.LoadConfig(); cfgErr == nil && config.WeatherEnabled && sameDay(date, time.Now()) {
+		weather, wErr := safetyreminder.FetchWeather(s.ctx, config.WeatherCityCode)
+		if wErr != nil {
+			log.Printf("[SafetyReminder] 天气查询失败，回退常规轮换: %v", wErr)
+			content, err = safetyreminder.ContentForDate(date, topics)
+		} else {
+			log.Printf("[SafetyReminder] 当日天气: %s", weather.Summary())
+			content = safetyreminder.ContentForWeather(date, topics, weather)
+			err = nil
+		}
+	} else {
+		content, err = safetyreminder.ContentForDate(date, topics)
+	}
 	if err != nil {
 		return nil, safetyreminder.PosterContent{}, err
 	}
@@ -47,6 +61,12 @@ func (s *SafetyReminderService) Preview(date time.Time, topicsFile string) ([]by
 		return nil, safetyreminder.PosterContent{}, err
 	}
 	return pngBytes, content, nil
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Local().Date()
+	by, bm, bd := b.Local().Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // Send renders one poster and uploads it to every configured group.
