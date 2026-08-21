@@ -69,6 +69,19 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
+// PreparePoster returns an approved dated poster when present, otherwise a dynamic poster.
+func (s *SafetyReminderService) PreparePoster(date time.Time, config safetyreminder.Config) ([]byte, string, error) {
+	pngBytes, found, staticErr := safetyreminder.LoadStaticPoster(date, config.StaticPostersDir)
+	if staticErr != nil {
+		log.Printf("[SafetyReminder] 静态海报读取失败，回退动态生成: 日期=%s 错误=%v", date.Format("2006-01-02"), staticErr)
+	} else if found {
+		return pngBytes, "静态审核海报", nil
+	}
+
+	pngBytes, content, err := s.Preview(date, config.TopicsFile)
+	return pngBytes, content.Focus, err
+}
+
 // Send renders one poster and uploads it to every configured group.
 // deduplicate must be true for scheduled sends.
 func (s *SafetyReminderService) Send(date time.Time, config safetyreminder.Config, deduplicate bool) (SafetyReminderSendResult, error) {
@@ -118,7 +131,7 @@ func (s *SafetyReminderService) Send(date time.Time, config safetyreminder.Confi
 		return result, ErrSafetyReminderAlreadySent
 	}
 
-	pngBytes, content, err := s.Preview(date, config.TopicsFile)
+	pngBytes, focus, err := s.PreparePoster(date, config)
 	if err != nil {
 		for _, index := range pending {
 			target := targets[index]
@@ -130,7 +143,7 @@ func (s *SafetyReminderService) Send(date time.Time, config safetyreminder.Confi
 		}
 		return result, err
 	}
-	result.Focus = content.Focus
+	result.Focus = focus
 
 	messageService := NewMessageService(s.ctx)
 	for _, index := range pending {

@@ -15,15 +15,16 @@ const (
 )
 
 type Config struct {
-	Enabled           bool    `json:"enabled"`
-	Cron              string  `json:"cron"`
-	TargetChatRoomID  string  `json:"target_chat_room_id,omitempty"`
+	Enabled           bool     `json:"enabled"`
+	Cron              string   `json:"cron"`
+	TargetChatRoomID  string   `json:"target_chat_room_id,omitempty"`
 	TargetChatRoomIDs []string `json:"target_chat_room_ids,omitempty"`
-	SendOnWeekends    bool    `json:"send_on_weekends"`
-	TestToken         string  `json:"test_token"`
-	TopicsFile        string  `json:"topics_file"`
-	WeatherEnabled    bool    `json:"weather_enabled"`
-	WeatherCityCode   string  `json:"weather_city_code"`
+	SendOnWeekends    bool     `json:"send_on_weekends"`
+	TestToken         string   `json:"test_token"`
+	TopicsFile        string   `json:"topics_file"`
+	StaticPostersDir  string   `json:"static_posters_dir"`
+	WeatherEnabled    bool     `json:"weather_enabled"`
+	WeatherCityCode   string   `json:"weather_city_code"`
 }
 
 func DefaultConfig() Config {
@@ -69,6 +70,7 @@ func LoadConfigFile(path string) (Config, error) {
 	}
 	config.TestToken = strings.TrimSpace(config.TestToken)
 	config.TopicsFile = strings.TrimSpace(config.TopicsFile)
+	config.StaticPostersDir = strings.TrimSpace(config.StaticPostersDir)
 	if config.Cron == "" {
 		config.Cron = DefaultConfig().Cron
 	}

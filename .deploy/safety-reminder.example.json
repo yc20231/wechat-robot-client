@@ -4,5 +4,6 @@
   "target_chat_room_ids": [],
   "send_on_weekends": true,
   "test_token": "replace-with-a-random-token",
-  "topics_file": ""
+  "topics_file": "",
+  "static_posters_dir": ""
 }

@@ -18,7 +18,7 @@ func TestLoadConfigFileDefaultsWhenMissing(t *testing.T) {
 
 func TestLoadConfigFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	data := []byte(`{"enabled":true,"cron":"30 7 * * *","target_chat_room_id":"123@chatroom","send_on_weekends":false,"test_token":"secret"}`)
+	data := []byte(`{"enabled":true,"cron":"30 7 * * *","target_chat_room_id":"123@chatroom","send_on_weekends":false,"test_token":"secret","static_posters_dir":" /data/skills/safety-reminder-static "}`)
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +28,9 @@ func TestLoadConfigFile(t *testing.T) {
 	}
 	if !config.Enabled || config.Cron != "30 7 * * *" || config.TargetChatRoomID != "123@chatroom" || config.SendOnWeekends || config.TestToken != "secret" {
 		t.Fatalf("unexpected config: %+v", config)
+	}
+	if config.StaticPostersDir != "/data/skills/safety-reminder-static" {
+		t.Fatalf("unexpected static posters directory: %q", config.StaticPostersDir)
 	}
 	if err := config.ValidateForSend(); err != nil {
 		t.Fatal(err)

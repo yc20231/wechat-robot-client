@@ -32,7 +32,7 @@ func (ct *SafetyReminder) Preview(c *gin.Context) {
 		appx.NewResponse(c).ToInvalidResponseMsg(err.Error())
 		return
 	}
-	pngBytes, _, err := service.NewSafetyReminderService(c).Preview(date, config.TopicsFile)
+	pngBytes, _, err := service.NewSafetyReminderService(c).PreparePoster(date, config)
 	if err != nil {
 		appx.NewResponse(c).ToErrorResponse(err)
 		return
