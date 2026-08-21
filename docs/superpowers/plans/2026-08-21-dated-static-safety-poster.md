@@ -86,25 +86,26 @@ Expected: PASS。
 
 **Files:**
 - Modify: `service/safety_reminder.go`
+- Modify: `controller/safety_reminder.go`
 - Create: `service/safety_reminder_test.go`
 
 **Interfaces:**
-- Produces: `func (s *SafetyReminderService) preparePoster(date time.Time, config safetyreminder.Config) ([]byte, string, error)`。
+- Produces: `func (s *SafetyReminderService) PreparePoster(date time.Time, config safetyreminder.Config) ([]byte, string, error)`。
 - Returns: 图片字节、日志用重点标题、仅当静态和动态路径都失败时返回错误。
 
 - [ ] **Step 1: 写选择逻辑失败测试**
 
-临时目录有有效 PNG 时断言 `preparePoster` 原样返回并将标题设为 `静态审核海报`。缺失日期时断言返回动态 PNG 和非空标题。无效 PNG 时捕获日志，断言包含 `静态海报读取失败` 且仍返回动态 PNG。
+临时目录有有效 PNG 时断言 `PreparePoster` 原样返回并将标题设为 `静态审核海报`。缺失日期时断言返回动态 PNG 和非空标题。无效 PNG 时捕获日志，断言包含 `静态海报读取失败` 且仍返回动态 PNG。
 
 - [ ] **Step 2: 运行测试并确认失败**
 
 Run: `go test ./service -run TestPrepareSafetyReminderPoster -count=1`
 
-Expected: FAIL，`preparePoster` 尚不存在。
+Expected: FAIL，`PreparePoster` 尚不存在。
 
 - [ ] **Step 3: 实现最小选择逻辑**
 
-实现静态读取；有效时返回静态字节和 `静态审核海报`。静态错误用 `[SafetyReminder] 静态海报读取失败，回退动态生成` 记录日期和错误；未命中或错误时调用 `s.Preview(date, config.TopicsFile)`。将 `Send` 原来的 `s.Preview` 调用改为 `preparePoster`，其余待发送群、Redis 键和上传循环不变。
+实现静态读取；有效时返回静态字节和 `静态审核海报`。静态错误用 `[SafetyReminder] 静态海报读取失败，回退动态生成` 记录日期和错误；未命中或错误时调用 `s.Preview(date, config.TopicsFile)`。将 `Send` 和控制器只读预览原来的 `s.Preview` 调用改为 `PreparePoster`，其余待发送群、Redis 键和上传循环不变。
 
 - [ ] **Step 4: 运行聚焦测试与相关包测试**
 
@@ -131,7 +132,7 @@ Expected: PASS。
 
 - [ ] **Step 2: 格式化并运行验证**
 
-Run: `gofmt -w pkg/safetyreminder/config.go pkg/safetyreminder/config_test.go pkg/safetyreminder/static_poster.go pkg/safetyreminder/static_poster_test.go service/safety_reminder.go service/safety_reminder_test.go`
+Run: `gofmt -w pkg/safetyreminder/config.go pkg/safetyreminder/config_test.go pkg/safetyreminder/static_poster.go pkg/safetyreminder/static_poster_test.go service/safety_reminder.go service/safety_reminder_test.go controller/safety_reminder.go`
 
 Run: `go test ./pkg/safetyreminder ./service ./common_cron ./controller -count=1`
 
