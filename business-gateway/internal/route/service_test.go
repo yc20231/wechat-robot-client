@@ -33,12 +33,27 @@ type fakeBackend struct {
 	queries    int
 	customer   backend.Customer
 	resolveErr error
+	cost       backend.MaterialCost
+	costErr    error
+	costCalls  int
+	costKeyword string
+	costFileID  int64
 }
 
 func (f *fakeBackend) QueryInventory(_ context.Context, query backend.InventoryQuery) (backend.Inventory, error) {
 	f.query = query
 	f.queries++
 	return f.inventory, f.queryErr
+}
+
+func (f *fakeBackend) QueryMaterialCost(_ context.Context, keyword string, fileID int64) (backend.MaterialCost, error) {
+	f.costKeyword = keyword
+	f.costFileID = fileID
+	f.costCalls++
+	if f.costErr != nil {
+		return backend.MaterialCost{}, f.costErr
+	}
+	return f.cost, nil
 }
 
 func (f *fakeBackend) Health(context.Context) error { return f.healthErr }

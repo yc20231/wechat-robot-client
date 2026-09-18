@@ -18,6 +18,8 @@ import (
 	"wechat-robot-client/interface/plugin"
 	"wechat-robot-client/model"
 	"wechat-robot-client/pkg/robot"
+	"wechat-robot-client/pkg/templates/materialsheet"
+	"wechat-robot-client/service"
 	"wechat-robot-client/vars"
 )
 
@@ -48,10 +50,25 @@ type BusinessRouteRequest struct {
 }
 
 type BusinessRouteResponse struct {
-	Handled      bool     `json:"handled"`
-	Reply        string   `json:"reply,omitempty"`
-	Error        string   `json:"error,omitempty"`
-	ReplyAtWxIDs []string `json:"reply_at_wxids,omitempty"`
+	Handled      bool                `json:"handled"`
+	Reply        string              `json:"reply,omitempty"`
+	Error        string              `json:"error,omitempty"`
+	ReplyAtWxIDs []string            `json:"reply_at_wxids,omitempty"`
+	Image        *BusinessRouteImage `json:"image,omitempty"`
+}
+
+// BusinessRouteImage 是网关下发的配料单网格，与 business-gateway route.MaterialSheetImage 契约一致。
+type BusinessRouteImage struct {
+	Title  string                    `json:"title"`
+	Cells  [][]string                `json:"cells"`
+	Merges []BusinessRouteImageMerge `json:"merges,omitempty"`
+}
+
+type BusinessRouteImageMerge struct {
+	StartRow    int `json:"start_row"`
+	EndRow      int `json:"end_row"`
+	StartColumn int `json:"start_column"`
+	EndColumn   int `json:"end_column"`
 }
 
 type businessRouteClient interface {
@@ -252,7 +269,34 @@ func (p *BusinessRouterPlugin) Run(ctx *plugin.MessageContext) {
 	if strings.TrimSpace(response.Error) != "" {
 		reply = strings.TrimSpace(response.Error)
 	}
+	if response.Image != nil && len(response.Image.Cells) > 0 && strings.TrimSpace(response.Error) == "" {
+		p.sendImageThenReply(ctx, response.Image, reply, response.ReplyAtWxIDs...)
+		return
+	}
 	p.replyAndStop(ctx, reply, response.ReplyAtWxIDs...)
+}
+
+// sendImageThenReply 先发网关下发的配料单图片（渲染失败降级为纯文字），再发文字回复。
+func (p *BusinessRouterPlugin) sendImageThenReply(ctx *plugin.MessageContext, image *BusinessRouteImage, reply string, extraAtWxIDs ...string) {
+	merges := make([]materialsheet.Merge, 0, len(image.Merges))
+	for _, merge := range image.Merges {
+		merges = append(merges, materialsheet.Merge{
+			StartRow: merge.StartRow, EndRow: merge.EndRow,
+			StartColumn: merge.StartColumn, EndColumn: merge.EndColumn,
+		})
+	}
+	htmlContent := materialsheet.Render(image.Title, image.Cells, merges)
+	routeContext := ctx.Context
+	if routeContext == nil {
+		routeContext = context.Background()
+	}
+	pngBytes, err := service.CaptureHTMLScreenshot(routeContext, htmlContent)
+	if err != nil {
+		log.Printf("[BusinessRouter] 渲染业务图片失败 msg_id=%d: %v", ctx.Message.MsgId, err)
+	} else if _, err := ctx.MessageService.MsgUploadImg(ctx.Message.FromWxID, bytes.NewReader(pngBytes)); err != nil {
+		log.Printf("[BusinessRouter] 发送业务图片失败 msg_id=%d: %v", ctx.Message.MsgId, err)
+	}
+	p.replyAndStop(ctx, reply, extraAtWxIDs...)
 }
 
 func extractMentionedWxIDs(message *model.Message) []string {

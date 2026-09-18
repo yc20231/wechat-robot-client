@@ -55,9 +55,91 @@ type Customer struct {
 	Name   string `json:"customer_name"`
 }
 
+// BackendError 携带业务后端返回的中文提示，供网关直接透传给群成员。
+type BackendError struct{ Message string }
+
+func (e *BackendError) Error() string { return e.Message }
+
+type MaterialCostMatch struct {
+	Index         int    `json:"index"`
+	FileID        int64  `json:"file_id"`
+	Name          string `json:"name"`
+	Location      string `json:"location,omitempty"`
+	CustomerCode  string `json:"customer_code,omitempty"`
+	ArticleNumber string `json:"article_number,omitempty"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+type MaterialCostFile struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	VersionNo int    `json:"version_no"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type MaterialSheetMerge struct {
+	StartRow    int `json:"start_row"`
+	EndRow      int `json:"end_row"`
+	StartColumn int `json:"start_column"`
+	EndColumn   int `json:"end_column"`
+}
+
+// MaterialCostSheet 是后端配料单打印区域的纯文本网格，由机器人端渲染成图片。
+type MaterialCostSheet struct {
+	RowCount    int                  `json:"row_count"`
+	ColumnCount int                  `json:"column_count"`
+	Cells       [][]string           `json:"cells"`
+	Merges      []MaterialSheetMerge `json:"merges,omitempty"`
+}
+
+type MaterialCostRow struct {
+	MaterialName string  `json:"material_name"`
+	RawQuantity  string  `json:"raw_quantity"`
+	WeightJin    string  `json:"weight_jin"`
+	UnitPrice    *string `json:"unit_price"`
+	Cost         *string `json:"cost"`
+}
+
+type MaterialCostRegion struct {
+	Name           string            `json:"name"`
+	TotalWeightJin string            `json:"total_weight_jin"`
+	Rows           []MaterialCostRow `json:"rows"`
+}
+
+type MaterialCostUnsupportedRow struct {
+	MaterialName string `json:"material_name"`
+	RawQuantity  string `json:"raw_quantity"`
+	Reason       string `json:"reason"`
+}
+
+type MaterialCostSnapshot struct {
+	Status              string                       `json:"status"`
+	ProductionWeightJin *string                      `json:"production_weight_jin"`
+	Regions             []MaterialCostRegion         `json:"regions"`
+	MissingMaterials    []string                     `json:"missing_materials"`
+	UnsupportedRows     []MaterialCostUnsupportedRow `json:"unsupported_rows"`
+	TotalWeightJin      string                       `json:"total_weight_jin"`
+	TotalCost           *string                      `json:"total_cost"`
+	AverageCostPerJin   *string                      `json:"average_cost_per_jin"`
+	ProductionCost      *string                      `json:"production_cost"`
+	ProcessingFee       *string                      `json:"processing_fee"`
+}
+
+type MaterialCost struct {
+	Resolved      bool                  `json:"resolved"`
+	Query         string                `json:"query"`
+	Matches       []MaterialCostMatch   `json:"matches"`
+	File          *MaterialCostFile     `json:"file,omitempty"`
+	CustomerCode  string                `json:"customer_code,omitempty"`
+	ArticleNumber string                `json:"article_number,omitempty"`
+	Cost          *MaterialCostSnapshot `json:"cost,omitempty"`
+	Sheet         *MaterialCostSheet    `json:"sheet,omitempty"`
+}
+
 type Service interface {
 	QueryInventory(ctx context.Context, query InventoryQuery) (Inventory, error)
 	ResolveCustomer(ctx context.Context, customerCode string) (Customer, error)
+	QueryMaterialCost(ctx context.Context, keyword string, fileID int64) (MaterialCost, error)
 	Health(ctx context.Context) error
 }
 
@@ -107,6 +189,29 @@ func (c *Client) QueryInventory(ctx context.Context, query InventoryQuery) (Inve
 	}
 	if response.Code != 0 {
 		return Inventory{}, fmt.Errorf("后端拒绝库存查询: %s", response.Message)
+	}
+	return response.Data, nil
+}
+
+// QueryMaterialCost 查询配料安排单成本；fileID>0 表示按后端返回的候选编号精确选择。
+func (c *Client) QueryMaterialCost(ctx context.Context, keyword string, fileID int64) (MaterialCost, error) {
+	params := url.Values{}
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		params.Set("keyword", keyword)
+	}
+	if fileID > 0 {
+		params.Set("file_id", strconv.FormatInt(fileID, 10))
+	}
+	var response struct {
+		Code    int           `json:"code"`
+		Message string        `json:"message"`
+		Data    MaterialCost  `json:"data"`
+	}
+	if err := c.get(ctx, "/api/bot/material-schedules/cost", params, &response); err != nil {
+		return MaterialCost{}, err
+	}
+	if response.Code != 0 {
+		return MaterialCost{}, &BackendError{Message: response.Message}
 	}
 	return response.Data, nil
 }

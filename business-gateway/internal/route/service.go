@@ -37,10 +37,11 @@ type Request struct {
 }
 
 type Response struct {
-	Handled      bool     `json:"handled"`
-	Reply        string   `json:"reply,omitempty"`
-	Error        string   `json:"error,omitempty"`
-	ReplyAtWxIDs []string `json:"reply_at_wxids,omitempty"`
+	Handled      bool                `json:"handled"`
+	Reply        string              `json:"reply,omitempty"`
+	Error        string              `json:"error,omitempty"`
+	ReplyAtWxIDs []string            `json:"reply_at_wxids,omitempty"`
+	Image        *MaterialSheetImage `json:"image,omitempty"`
 }
 
 type command struct {
@@ -48,6 +49,7 @@ type command struct {
 	stability    string
 	keyword      string
 	customerCode string
+	selection    string
 }
 
 type Service struct {
@@ -60,6 +62,9 @@ type Service struct {
 	confirmationTTL  time.Duration
 	managementMu     sync.Mutex
 	requireAtMention bool
+	// costMu/costSelections 保存“查成本 #序号”用的候选列表（按群+发送者隔离）。
+	costMu         sync.Mutex
+	costSelections map[string]costSelection
 }
 
 func NewService(groups group.Store, backendService backend.Service, cache dedup.Cache, admins admin.Store, auditLogger audit.Logger, requireAtMention bool, confirmationTTL time.Duration) *Service {
@@ -155,6 +160,8 @@ func (s *Service) Route(ctx context.Context, req Request) Response {
 			return businessError("库存查询暂时不可用，请稍后再试")
 		}
 		return Response{Handled: true, Reply: renderInventory(inventory)}
+	case "cost":
+		return s.handleCost(ctx, req, cmd)
 	default:
 		return Response{Handled: false}
 	}
@@ -183,6 +190,9 @@ func parseCommand(content string) (command, bool) {
 		if strings.HasPrefix(content, prefix+" ") {
 			return command{module: "inventory", stability: ModuleStable, keyword: strings.TrimSpace(strings.TrimPrefix(content, prefix))}, true
 		}
+	}
+	if cmd, ok := parseCostCommand(content); ok {
+		return cmd, true
 	}
 	return command{}, false
 }
@@ -232,6 +242,7 @@ func renderHelp(admin bool) string {
 		lines = append(lines,
 			"管理员：查库存 <客户代号> [关键词]",
 			"管理员：查 <客户代号> 库存 [关键词]",
+			"管理员：查成本 <如：网的18厚白>",
 			"管理员：业务状态",
 		)
 	}

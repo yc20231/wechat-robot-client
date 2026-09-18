@@ -23,6 +23,9 @@ type fakeBackend struct{}
 func (fakeBackend) QueryInventory(context.Context, backend.InventoryQuery) (backend.Inventory, error) {
 	return backend.Inventory{CustomerCode: "270"}, nil
 }
+func (fakeBackend) QueryMaterialCost(context.Context, string, int64) (backend.MaterialCost, error) {
+	return backend.MaterialCost{}, nil
+}
 func (fakeBackend) Health(context.Context) error { return nil }
 func (fakeBackend) ResolveCustomer(context.Context, string) (backend.Customer, error) {
 	return backend.Customer{Exists: true, Code: "270", Name: "测试客户"}, nil
