@@ -134,12 +134,15 @@ func (s *Service) replyCostMatches(req Request, keyword string, cost backend.Mat
 	for _, match := range cost.Matches {
 		fileIDs = append(fileIDs, match.FileID)
 		line := fmt.Sprintf("#%d %s", match.Index, match.Name)
-		parts := make([]string, 0, 2)
+		parts := make([]string, 0, 3)
 		if match.CustomerCode != "" {
 			parts = append(parts, "客户："+match.CustomerCode)
 		}
 		if match.ArticleNumber != "" {
 			parts = append(parts, "货号："+match.ArticleNumber)
+		}
+		if match.Location != "" {
+			parts = append(parts, "文件夹："+match.Location)
 		}
 		if len(parts) > 0 {
 			line += "（" + strings.Join(parts, " ") + "）"
