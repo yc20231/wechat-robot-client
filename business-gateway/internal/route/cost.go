@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"business-gateway/internal/backend"
 )
@@ -75,7 +76,7 @@ func (s *Service) handleCost(ctx context.Context, req Request, cmd command) Resp
 	if cmd.selection != "" {
 		return s.handleCostSelection(ctx, req, cmd.selection)
 	}
-	keyword := strings.TrimSpace(cmd.keyword)
+	keyword := normalizeBotKeyword(strings.TrimSpace(cmd.keyword))
 	if keyword == "" {
 		return Response{Handled: true, Reply: "配料成本查询用法：查成本 <客户+货号>，如：查成本 网的18厚白"}
 	}
@@ -89,6 +90,12 @@ func (s *Service) handleCost(ctx context.Context, req Request, cmd command) Resp
 	}
 	if !cost.Resolved {
 		return s.replyCostMatches(req, keyword, cost)
+	}
+	// 客户对不上时不直接出结果：如“网的18厚白”匹配到 026 的《18厚白》，
+	// 转为候选列表让管理员确认，避免把别的客户的单子发出去。
+	if desiredCustomer, _ := splitBotKeyword(keyword); desiredCustomer != "" &&
+		cost.CustomerCode != "" && cost.CustomerCode != desiredCustomer {
+		return s.replyCostCustomerMismatch(req, keyword, desiredCustomer, cost)
 	}
 	return costResolvedResponse(cost)
 }
@@ -245,6 +252,51 @@ func orDash(value *string) string {
 		return "—"
 	}
 	return strings.TrimSpace(*value)
+}
+
+// splitBotKeyword 把“网的18厚白”拆成客户代号“网”和货号“18厚白”；没有“的”时整体视为货号。
+func splitBotKeyword(keyword string) (customer, article string) {
+	index := strings.Index(keyword, "的")
+	if index < 0 {
+		return "", keyword
+	}
+	return strings.TrimSpace(keyword[:index]), strings.TrimSpace(keyword[index+len("的"):])
+}
+
+// normalizeBotKeyword 去掉关键词里的全部空白（含全角空格）：中文单据名不带空格，
+// 而手机输入法常在中文和数字间插空格（如“网的 18 厚白”）。
+func normalizeBotKeyword(keyword string) string {
+	var builder strings.Builder
+	for _, char := range keyword {
+		if unicode.IsSpace(char) {
+			continue
+		}
+		builder.WriteRune(char)
+	}
+	return builder.String()
+}
+
+// replyCostCustomerMismatch 客户代号不符时列出相近结果，供管理员手动确认。
+func (s *Service) replyCostCustomerMismatch(req Request, keyword, desiredCustomer string, cost backend.MaterialCost) Response {
+	fileID := int64(0)
+	name := keyword
+	if cost.File != nil {
+		fileID = cost.File.ID
+		name = cost.File.Name
+	}
+	hint := ""
+	if fileID > 0 {
+		s.storeCostSelections(req.GroupID, req.SenderWxID, costSelection{
+			keyword:   keyword,
+			fileIDs:   []int64{fileID},
+			expiresAt: time.Now().Add(costSelectionTTL),
+		})
+		hint = "\n如需查看这张单子，回复“查成本 #1”"
+	}
+	return Response{Handled: true, Reply: fmt.Sprintf(
+		"没找到客户「%s」的配料单，最接近的是：%s（客户代号：%s）%s",
+		desiredCustomer, name, cost.CustomerCode, hint,
+	)}
 }
 
 // ---- 候选列表存取（按群+发送者隔离，带过期清理） ----

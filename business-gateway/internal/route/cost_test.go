@@ -151,6 +151,34 @@ func TestCostGenericErrorIsMasked(t *testing.T) {
 	}
 }
 
+func TestCostQueryKeywordSpacesStripped(t *testing.T) {
+	api := &fakeBackend{cost: costFixture()}
+	service := newTestService(api)
+	service.Route(context.Background(), baseRequest("customer@chatroom", "root-wxid", "查成本 网的 18 厚白 ", 420))
+	if api.costKeyword != "网的18厚白" {
+		t.Fatalf("keyword = %q, want 网的18厚白", api.costKeyword)
+	}
+}
+
+func TestCostCustomerMismatchAsksForConfirmation(t *testing.T) {
+	api := &fakeBackend{cost: costFixture()}
+	api.cost.CustomerCode = "026"
+	service := newTestService(api)
+
+	first := service.Route(context.Background(), baseRequest("customer@chatroom", "root-wxid", "查成本 网的18厚白", 421))
+	if first.Image != nil {
+		t.Fatalf("mismatched customer must not ship the sheet directly: %+v", first)
+	}
+	if !strings.Contains(first.Reply, "没找到客户「网」") || !strings.Contains(first.Reply, "客户代号：026") || !strings.Contains(first.Reply, "查成本 #1") {
+		t.Fatalf("mismatch reply = %q", first.Reply)
+	}
+
+	second := service.Route(context.Background(), baseRequest("customer@chatroom", "root-wxid", "查成本 #1", 422))
+	if second.Error != "" || second.Image == nil {
+		t.Fatalf("manual confirmation failed: %+v", second)
+	}
+}
+
 func TestCostPerTonConversion(t *testing.T) {
 	if got := costPerTonText(strPtr("4.191")); got != "8382" {
 		t.Fatalf("cost per ton = %q, want 8382", got)
