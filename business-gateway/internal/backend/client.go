@@ -84,12 +84,29 @@ type MaterialSheetMerge struct {
 	EndColumn   int `json:"end_column"`
 }
 
-// MaterialCostSheet 是后端配料单打印区域的纯文本网格，由机器人端渲染成图片。
+type MaterialSheetStyle struct {
+	FontFamily string  `json:"font_family,omitempty"`
+	FontSize   float64 `json:"font_size,omitempty"`
+	Bold       bool    `json:"bold,omitempty"`
+	Align      string  `json:"align,omitempty"`
+}
+
+// MaterialCostSheet 是打印区域网格加画布尺寸/样式。
 type MaterialCostSheet struct {
-	RowCount    int                  `json:"row_count"`
-	ColumnCount int                  `json:"column_count"`
-	Cells       [][]string           `json:"cells"`
-	Merges      []MaterialSheetMerge `json:"merges,omitempty"`
+	SheetID            string                        `json:"sheet_id,omitempty"`
+	SheetName          string                        `json:"sheet_name,omitempty"`
+	RowCount           int                           `json:"row_count"`
+	ColumnCount        int                           `json:"column_count"`
+	RowHeaderWidth     float64                       `json:"row_header_width,omitempty"`
+	ColumnHeaderHeight float64                       `json:"column_header_height,omitempty"`
+	DefaultColumnWidth float64                       `json:"default_column_width,omitempty"`
+	DefaultRowHeight   float64                       `json:"default_row_height,omitempty"`
+	ColumnWidths       []float64                     `json:"column_widths,omitempty"`
+	RowHeights         []float64                     `json:"row_heights,omitempty"`
+	Cells              [][]string                    `json:"cells"`
+	CellStyles         [][]string                    `json:"cell_styles,omitempty"`
+	Styles             map[string]MaterialSheetStyle `json:"styles,omitempty"`
+	Merges             []MaterialSheetMerge          `json:"merges,omitempty"`
 }
 
 type MaterialCostRow struct {
@@ -119,6 +136,7 @@ type MaterialCostSnapshot struct {
 	MissingMaterials    []string                     `json:"missing_materials"`
 	UnsupportedRows     []MaterialCostUnsupportedRow `json:"unsupported_rows"`
 	TotalWeightJin      string                       `json:"total_weight_jin"`
+	KnownCost           string                       `json:"known_cost"`
 	TotalCost           *string                      `json:"total_cost"`
 	AverageCostPerJin   *string                      `json:"average_cost_per_jin"`
 	ProductionCost      *string                      `json:"production_cost"`
@@ -203,9 +221,9 @@ func (c *Client) QueryMaterialCost(ctx context.Context, keyword string, fileID i
 		params.Set("file_id", strconv.FormatInt(fileID, 10))
 	}
 	var response struct {
-		Code    int           `json:"code"`
-		Message string        `json:"message"`
-		Data    MaterialCost  `json:"data"`
+		Code    int          `json:"code"`
+		Message string       `json:"message"`
+		Data    MaterialCost `json:"data"`
 	}
 	if err := c.get(ctx, "/api/bot/material-schedules/cost", params, &response); err != nil {
 		return MaterialCost{}, err

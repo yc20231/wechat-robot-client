@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body {
+    width: 1540px;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    color: #303133;
+  }
+  .editor {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    min-height: 720px;
+    background: #fff;
+  }
+  .workbook {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 6px 8px;
+    background: #fff;
+  }
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .toolbar-separator {
+    width: 1px;
+    height: 24px;
+    flex: 0 0 1px;
+    background: #dcdfe6;
+  }
+  .toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 11px;
+    border: 1px solid #dcdfe6;
+    border-radius: 4px;
+    background: #fff;
+    color: #606266;
+    font-size: 12px;
+    line-height: 24px;
+    white-space: nowrap;
+  }
+  .toolbar-label {
+    color: #606266;
+    font-size: 13px;
+  }
+  .toolbar-select {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    border: 1px solid #dcdfe6;
+    border-radius: 12px;
+    background: #fff;
+    color: #606266;
+    font-size: 12px;
+    line-height: 24px;
+    padding: 0 22px 0 10px;
+    position: relative;
+    white-space: nowrap;
+  }
+  .toolbar-select::after {
+    content: "";
+    position: absolute;
+    right: 8px;
+    top: 9px;
+    border: 4px solid transparent;
+    border-top-color: #909399;
+  }
+  .font-select { width: 118px; }
+  .size-select { width: 76px; }
+  .univer-shell {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+  }
+  .grid-wrap {
+    flex: 1 1 auto;
+    overflow: hidden;
+    background: #fff;
+  }
+  .sheet {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: {{.TableWidth}};
+  }
+  .sheet th, .sheet td {
+    border: 1px solid #e5e5e5;
+    padding: 0 4px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .sheet thead th {
+    height: {{.ColumnHeaderHeight}};
+    background: #f5f5f5;
+    color: #737373;
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .sheet .row-num {
+    width: {{.RowHeaderWidth}};
+    background: #f5f5f5;
+    color: #737373;
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .sheet td {
+    font-family: "SimSun", "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+    font-size: 12px;
+    color: #1f1f1f;
+    background: #fff;
+    line-height: 1.2;
+  }
+  .sheet td.is-title {
+    font-size: 16px;
+    font-weight: 700;
+    height: 28px;
+  }
+  .sheet td.is-wrap {
+    height: auto;
+    min-height: 24px;
+    padding: 3px 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.45;
+  }
+  .sheet-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding: 0 10px;
+    border-top: 1px solid #e5e5e5;
+    background: #f7f7f7;
+    color: #606266;
+    font-size: 12px;
+  }
+  .sheet-add {
+    width: 20px;
+    height: 20px;
+    line-height: 18px;
+    text-align: center;
+    font-size: 16px;
+    color: #606266;
+  }
+  .sheet-icon {
+    width: 16px;
+    height: 12px;
+    border: 1px solid #909399;
+    border-radius: 1px;
+    position: relative;
+    background:
+      linear-gradient(#909399, #909399) 0 3px / 100% 1px no-repeat,
+      linear-gradient(#909399, #909399) 0 7px / 100% 1px no-repeat;
+  }
+  .sheet-tab {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px;
+    color: #0b74fa;
+    font-weight: 600;
+    background: #fff;
+    border-bottom: 2px solid #0b74fa;
+  }
+  .zoom {
+    position: absolute;
+    right: 10px;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 58px;
+    height: 36px;
+    color: #1f2329;
+    font-size: 12px;
+    background: #fff;
+  }
+  .cost-panel {
+    width: 475px;
+    flex: 0 0 475px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+  }
+  .cost-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 0 10px;
+    border-bottom: 1px solid #ebeef5;
+  }
+  .cost-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .cost-title { font-size: 16px; font-weight: 600; }
+  .preview-tag {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 4px;
+    border: 1px solid #b3d8ff;
+    background: #ecf5ff;
+    color: #409eff;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .cost-toolbar-actions { color: #606266; font-size: 13px; }
+  .cost-alert {
+    margin: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: #fdf6ec;
+    color: #e6a23c;
+    font-size: 13px;
+  }
+  .cost-summary {
+    padding: 10px;
+    border-bottom: 1px solid #ebeef5;
+  }
+  .cost-summary-line {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-height: 34px;
+    padding: 7px 9px;
+    border-radius: 4px;
+    background: #f5f7fa;
+  }
+  .cost-summary-line + .cost-summary-line { margin-top: 6px; }
+  .cost-summary-line span { color: #303133; font-size: 15px; }
+  .cost-summary-line strong { color: #303133; font-size: 21px; font-weight: 700; }
+  .cost-summary-line.is-cost { background: #ecf5ff; }
+  .cost-summary-line.is-cost strong { color: #409eff; }
+  .cost-summary-line.is-fee { background: #f0f9eb; }
+  .cost-summary-line.is-fee strong { color: #67c23a; }
+  .cost-body { padding: 10px; }
+  .cost-region {
+    margin-bottom: 12px;
+    border: 1px solid #ebeef5;
+    border-radius: 4px;
+  }
+  .cost-region-title, .cost-region-total {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 9px;
+    background: #f5f7fa;
+    font-size: 15px;
+  }
+  .cost-region-total { border-top: 1px solid #ebeef5; }
+  .cost-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 9px;
+    border-top: 1px solid #ebeef5;
+    font-size: 16px;
+  }
+  .cost-row-main {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .cost-row-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cost-row-meta {
+    flex: 0 0 auto;
+    color: #909399;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .cost-row-value { flex: 0 0 auto; white-space: nowrap; }
+  .cost-row-value.is-missing { color: #f56c6c; font-size: 15px; }
+  .cost-missing {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #ebeef5;
+  }
+  .cost-section-heading {
+    margin-bottom: 6px;
+    color: #606266;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .missing-tag {
+    display: inline-block;
+    margin: 0 4px 4px 0;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #fef0f0;
+    color: #f56c6c;
+    font-size: 12px;
+  }
+  .empty-note { padding: 24px 10px; color: #909399; text-align: center; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="editor">
+  <section class="workbook">
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <span class="toolbar-btn">撤销</span>
+        <span class="toolbar-btn">重做</span>
+      </div>
+      <span class="toolbar-separator"></span>
+      <div class="toolbar-group">
+        <span class="toolbar-label">字体</span>
+        <span class="toolbar-select font-select">宋体</span>
+        <span class="toolbar-label">字号</span>
+        <span class="toolbar-select size-select">12</span>
+      </div>
+    </div>
+    <div class="univer-shell">
+      <div class="grid-wrap">
+        {{if .Rows}}
+        <table class="sheet">
+          <colgroup>
+            <col style="width:{{.RowHeaderWidth}}">
+            {{range .ColumnWidths}}<col style="width:{{.}}">{{end}}
+          </colgroup>
+          <thead>
+            <tr style="height:{{.ColumnHeaderHeight}}">
+              <th class="row-num"></th>
+              {{range .Columns}}<th>{{.}}</th>{{end}}
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Rows}}
+            <tr{{if .Height}} style="height:{{.Height}}"{{end}}>
+              <th class="row-num">{{.Number}}</th>
+              {{range .Cells}}
+                {{if not .Skip}}
+                <td{{if gt .ColSpan 1}} colspan="{{.ColSpan}}"{{end}}{{if gt .RowSpan 1}} rowspan="{{.RowSpan}}"{{end}} class="{{if .Title}}is-title{{end}}{{if .Wrap}} is-wrap{{end}}"{{if .CSS}} style="{{.CSS}}"{{end}}>{{.Text}}</td>
+                {{end}}
+              {{end}}
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <div class="empty-note">{{.Title}}</div>
+        {{end}}
+      </div>
+      <div class="sheet-footer">
+        <span class="sheet-add">+</span>
+        <span class="sheet-icon"></span>
+        <span class="sheet-tab">{{.SheetName}}</span>
+      </div>
+      <div class="zoom">100%</div>
+    </div>
+  </section>
+  <aside class="cost-panel">
+    <div class="cost-toolbar">
+      <div class="cost-toolbar-left">
+        <span class="cost-title">配料成本</span>
+        {{if .HasCost}}<span class="preview-tag">实时预览</span>{{end}}
+      </div>
+      <div class="cost-toolbar-actions">刷新</div>
+    </div>
+    {{if .Incomplete}}
+    <div class="cost-alert">部分原料尚未设置价格，成本仅供参考</div>
+    {{end}}
+    {{if .HasCost}}
+    <div class="cost-summary">
+      <div class="cost-summary-line">
+        <span>共计：</span>
+        <strong>{{.TotalWeight}}斤</strong>
+        <span>=</span>
+        <strong>{{.KnownCost}}元</strong>
+      </div>
+      <div class="cost-summary-line is-cost">
+        <span>成本：</span>
+        <strong>{{.CostPerTon}}</strong>
+      </div>
+      <div class="cost-summary-line is-fee">
+        <span>加工费：</span>
+        <strong>{{.ProcessingFee}}</strong>
+      </div>
+    </div>
+    <div class="cost-body">
+      {{range .Regions}}
+      <section class="cost-region">
+        <div class="cost-region-title">
+          <span>{{.Name}}区域</span>
+          <span>{{.Weight}} 斤</span>
+        </div>
+        {{range .Rows}}
+        <div class="cost-row">
+          <div class="cost-row-main">
+            <div class="cost-row-name">{{.Name}}</div>
+            <small class="cost-row-meta">{{.Meta}}</small>
+          </div>
+          <div class="cost-row-value{{if .Missing}} is-missing{{end}}">{{.Value}}</div>
+        </div>
+        {{end}}
+        <div class="cost-region-total">
+          <span>区域成本</span>
+          <strong>{{.Cost}}</strong>
+        </div>
+      </section>
+      {{end}}
+      {{if .Missing}}
+      <section class="cost-missing">
+        <div class="cost-section-heading">缺少价格</div>
+        {{range .Missing}}<span class="missing-tag">{{.}}</span>{{end}}
+      </section>
+      {{end}}
+      {{if .Unsupported}}
+      <section class="cost-missing">
+        <div class="cost-section-heading">无法识别的行</div>
+        {{range .Unsupported}}<div>{{.}}</div>{{end}}
+      </section>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="empty-note">暂无成本数据</div>
+    {{end}}
+  </aside>
+</div>
+</body>
+</html>

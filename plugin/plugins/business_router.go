@@ -30,6 +30,7 @@ const (
 	defaultBusinessConfigFile  = "/data/skills/.business-gateway.json"
 	maxBusinessRouteBody       = 1 << 20
 	maxBusinessConfigSize      = 64 << 10
+	materialEditorCaptureWidth = 1540
 )
 
 type businessRouterConfig struct {
@@ -59,9 +60,24 @@ type BusinessRouteResponse struct {
 
 // BusinessRouteImage 是网关下发的配料单网格，与 business-gateway route.MaterialSheetImage 契约一致。
 type BusinessRouteImage struct {
-	Title  string                    `json:"title"`
-	Cells  [][]string                `json:"cells"`
-	Merges []BusinessRouteImageMerge `json:"merges,omitempty"`
+	Title              string                        `json:"title"`
+	Cells              [][]string                    `json:"cells"`
+	Merges             []BusinessRouteImageMerge     `json:"merges,omitempty"`
+	Cost               *BusinessRouteCost            `json:"cost,omitempty"`
+	SheetName          string                        `json:"sheet_name,omitempty"`
+	RowHeaderWidth     float64                       `json:"row_header_width,omitempty"`
+	ColumnHeaderHeight float64                       `json:"column_header_height,omitempty"`
+	ColumnWidths       []float64                     `json:"column_widths,omitempty"`
+	RowHeights         []float64                     `json:"row_heights,omitempty"`
+	CellStyles         [][]string                    `json:"cell_styles,omitempty"`
+	Styles             map[string]BusinessRouteStyle `json:"styles,omitempty"`
+}
+
+type BusinessRouteStyle struct {
+	FontFamily string  `json:"font_family,omitempty"`
+	FontSize   float64 `json:"font_size,omitempty"`
+	Bold       bool    `json:"bold,omitempty"`
+	Align      string  `json:"align,omitempty"`
 }
 
 type BusinessRouteImageMerge struct {
@@ -69,6 +85,39 @@ type BusinessRouteImageMerge struct {
 	EndRow      int `json:"end_row"`
 	StartColumn int `json:"start_column"`
 	EndColumn   int `json:"end_column"`
+}
+
+// BusinessRouteCost 与网关 backend.MaterialCostSnapshot 的 JSON 字段对齐。
+type BusinessRouteCost struct {
+	Status            string                     `json:"status"`
+	TotalWeightJin    string                     `json:"total_weight_jin"`
+	KnownCost         string                     `json:"known_cost"`
+	AverageCostPerJin *string                    `json:"average_cost_per_jin"`
+	ProcessingFee     *string                    `json:"processing_fee"`
+	MissingMaterials  []string                   `json:"missing_materials"`
+	UnsupportedRows   []BusinessRouteUnsupported `json:"unsupported_rows"`
+	Regions           []BusinessRouteCostRegion  `json:"regions"`
+}
+
+type BusinessRouteCostRegion struct {
+	Name           string                 `json:"name"`
+	TotalWeightJin string                 `json:"total_weight_jin"`
+	TotalCost      *string                `json:"total_cost"`
+	Rows           []BusinessRouteCostRow `json:"rows"`
+}
+
+type BusinessRouteCostRow struct {
+	MaterialName string  `json:"material_name"`
+	RawQuantity  string  `json:"raw_quantity"`
+	WeightJin    string  `json:"weight_jin"`
+	UnitPrice    *string `json:"unit_price"`
+	Cost         *string `json:"cost"`
+}
+
+type BusinessRouteUnsupported struct {
+	MaterialName string `json:"material_name"`
+	RawQuantity  string `json:"raw_quantity"`
+	Reason       string `json:"reason"`
 }
 
 type businessRouteClient interface {
@@ -140,8 +189,9 @@ func (c *httpBusinessRouteClient) Route(ctx context.Context, routeReq BusinessRo
 }
 
 type BusinessRouterPlugin struct {
-	client    businessRouteClient
-	configErr error
+	client      businessRouteClient
+	configErr   error
+	captureHTML func(ctx context.Context, html string, width int) ([]byte, error)
 }
 
 func NewBusinessRouterPlugin() plugin.MessageHandler {
@@ -276,7 +326,7 @@ func (p *BusinessRouterPlugin) Run(ctx *plugin.MessageContext) {
 	p.replyAndStop(ctx, reply, response.ReplyAtWxIDs...)
 }
 
-// sendImageThenReply 先发网关下发的配料单图片（渲染失败降级为纯文字），再发文字回复。
+// sendImageThenReply 渲染编辑器样式截图并发送；成功则不再发文字，失败才降级为文字。
 func (p *BusinessRouterPlugin) sendImageThenReply(ctx *plugin.MessageContext, image *BusinessRouteImage, reply string, extraAtWxIDs ...string) {
 	merges := make([]materialsheet.Merge, 0, len(image.Merges))
 	for _, merge := range image.Merges {
@@ -285,18 +335,97 @@ func (p *BusinessRouterPlugin) sendImageThenReply(ctx *plugin.MessageContext, im
 			StartColumn: merge.StartColumn, EndColumn: merge.EndColumn,
 		})
 	}
-	htmlContent := materialsheet.Render(image.Title, image.Cells, merges)
+	htmlContent := materialsheet.Render(materialsheet.Document{
+		Title:  image.Title,
+		Cells:  image.Cells,
+		Merges: merges,
+		Cost:   costPanelFromRoute(image.Cost),
+		Layout: sheetLayoutFromRoute(image),
+	})
 	routeContext := ctx.Context
 	if routeContext == nil {
 		routeContext = context.Background()
 	}
-	pngBytes, err := service.CaptureHTMLScreenshot(routeContext, htmlContent)
+	pngBytes, err := p.capture(routeContext, htmlContent, materialEditorCaptureWidth)
 	if err != nil {
 		log.Printf("[BusinessRouter] 渲染业务图片失败 msg_id=%d: %v", ctx.Message.MsgId, err)
-	} else if _, err := ctx.MessageService.MsgUploadImg(ctx.Message.FromWxID, bytes.NewReader(pngBytes)); err != nil {
-		log.Printf("[BusinessRouter] 发送业务图片失败 msg_id=%d: %v", ctx.Message.MsgId, err)
+		p.replyAndStop(ctx, reply, extraAtWxIDs...)
+		return
 	}
-	p.replyAndStop(ctx, reply, extraAtWxIDs...)
+	if _, err := ctx.MessageService.MsgUploadImg(ctx.Message.FromWxID, bytes.NewReader(pngBytes)); err != nil {
+		log.Printf("[BusinessRouter] 发送业务图片失败 msg_id=%d: %v", ctx.Message.MsgId, err)
+		p.replyAndStop(ctx, reply, extraAtWxIDs...)
+		return
+	}
+	ctx.Handled = true
+}
+
+func (p *BusinessRouterPlugin) capture(ctx context.Context, html string, width int) ([]byte, error) {
+	if p.captureHTML != nil {
+		return p.captureHTML(ctx, html, width)
+	}
+	return service.CaptureHTMLScreenshotWidth(ctx, html, width)
+}
+
+func sheetLayoutFromRoute(image *BusinessRouteImage) *materialsheet.SheetLayout {
+	if image == nil {
+		return nil
+	}
+	if len(image.ColumnWidths) == 0 && len(image.RowHeights) == 0 && len(image.Styles) == 0 {
+		return nil
+	}
+	layout := &materialsheet.SheetLayout{
+		SheetName:          image.SheetName,
+		RowHeaderWidth:     image.RowHeaderWidth,
+		ColumnHeaderHeight: image.ColumnHeaderHeight,
+		ColumnWidths:       image.ColumnWidths,
+		RowHeights:         image.RowHeights,
+		CellStyles:         image.CellStyles,
+	}
+	if len(image.Styles) > 0 {
+		layout.Styles = make(map[string]materialsheet.CellStyle, len(image.Styles))
+		for id, style := range image.Styles {
+			layout.Styles[id] = materialsheet.CellStyle{
+				FontFamily: style.FontFamily,
+				FontSize:   style.FontSize,
+				Bold:       style.Bold,
+				Align:      style.Align,
+			}
+		}
+	}
+	return layout
+}
+
+func costPanelFromRoute(cost *BusinessRouteCost) *materialsheet.CostPanel {
+	if cost == nil {
+		return nil
+	}
+	panel := &materialsheet.CostPanel{
+		Status:            cost.Status,
+		TotalWeightJin:    cost.TotalWeightJin,
+		KnownCost:         cost.KnownCost,
+		AverageCostPerJin: cost.AverageCostPerJin,
+		ProcessingFee:     cost.ProcessingFee,
+		MissingMaterials:  cost.MissingMaterials,
+	}
+	for _, row := range cost.UnsupportedRows {
+		panel.UnsupportedRows = append(panel.UnsupportedRows, materialsheet.UnsupportedRow{
+			MaterialName: row.MaterialName, RawQuantity: row.RawQuantity, Reason: row.Reason,
+		})
+	}
+	for _, region := range cost.Regions {
+		item := materialsheet.CostRegion{
+			Name: region.Name, TotalWeightJin: region.TotalWeightJin, TotalCost: region.TotalCost,
+		}
+		for _, row := range region.Rows {
+			item.Rows = append(item.Rows, materialsheet.CostRow{
+				MaterialName: row.MaterialName, RawQuantity: row.RawQuantity, WeightJin: row.WeightJin,
+				UnitPrice: row.UnitPrice, Cost: row.Cost,
+			})
+		}
+		panel.Regions = append(panel.Regions, item)
+	}
+	return panel
 }
 
 func extractMentionedWxIDs(message *model.Message) []string {

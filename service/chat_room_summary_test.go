@@ -146,7 +146,7 @@ func Test_captureHTMLScreenshot(t *testing.T) {
 		t.Fatalf("renderChatRoomSummaryHTML failed: %v", err)
 	}
 
-	pngBytes, err := captureHTMLScreenshot(context.Background(), htmlContent)
+	pngBytes, err := captureHTMLScreenshot(context.Background(), htmlContent, defaultHTMLScreenshotWidth)
 	if err != nil {
 		t.Fatalf("captureHTMLScreenshot failed: %v", err)
 	}

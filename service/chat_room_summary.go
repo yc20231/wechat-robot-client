@@ -343,7 +343,7 @@ func (s *ChatRoomService) sendChatRoomSummaryImage(ctx context.Context, msgServi
 	if err != nil {
 		return fmt.Errorf("渲染群聊总结模板失败: %w", err)
 	}
-	pngBytes, err := captureHTMLScreenshot(ctx, htmlContent)
+	pngBytes, err := captureHTMLScreenshot(ctx, htmlContent, defaultHTMLScreenshotWidth)
 	if err != nil {
 		return fmt.Errorf("群聊总结截图失败: %w", err)
 	}
@@ -354,7 +354,10 @@ func (s *ChatRoomService) sendChatRoomSummaryImage(ctx context.Context, msgServi
 	return nil
 }
 
-func captureHTMLScreenshot(ctx context.Context, htmlContent string) ([]byte, error) {
+func captureHTMLScreenshot(ctx context.Context, htmlContent string, width int) ([]byte, error) {
+	if width <= 0 {
+		width = defaultHTMLScreenshotWidth
+	}
 	tempFile, err := os.CreateTemp("", "chat_room_summary_*.html")
 	if err != nil {
 		return nil, err
@@ -376,7 +379,7 @@ func captureHTMLScreenshot(ctx context.Context, htmlContent string) ([]byte, err
 		chromedp.DisableGPU,
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.WindowSize(960, 1000), // 减小窗口初始宽度，适应手机屏幕阅读
+		chromedp.WindowSize(width, 1000),
 	)
 	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(ctx, allocatorOptions...)
 	defer allocatorCancel()
@@ -389,11 +392,11 @@ func captureHTMLScreenshot(ctx context.Context, htmlContent string) ([]byte, err
 
 	var pngBytes []byte
 	if err := chromedp.Run(timeoutCtx,
-		chromedp.EmulateViewport(960, 0, chromedp.EmulateScale(2)), // 宽度 960 2 开启视网膜高清分辨率
+		chromedp.EmulateViewport(int64(width), 0, chromedp.EmulateScale(2)),
 		chromedp.Navigate(fileURL.String()),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 		chromedp.Evaluate(`document.fonts ? document.fonts.ready.then(() => true) : true`, nil),
-		chromedp.FullScreenshot(&pngBytes, 100), // FullScreenshot 会自动计算页面的实际高度进行全尺寸截图
+		chromedp.FullScreenshot(&pngBytes, 100),
 	); err != nil {
 		return nil, err
 	}

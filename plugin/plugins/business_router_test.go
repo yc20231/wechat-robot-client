@@ -3,8 +3,10 @@ package plugins
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	pluginiface "wechat-robot-client/interface/plugin"
@@ -27,6 +29,7 @@ type recordingMessageService struct {
 	to      string
 	content string
 	at      []string
+	images  int
 }
 
 type blacklistedMessageService struct {
@@ -38,6 +41,15 @@ func (s *recordingMessageService) SendTextMessage(toWxID, content string, at ...
 	s.content = content
 	s.at = at
 	return nil
+}
+
+func (s *recordingMessageService) MsgUploadImg(toWxID string, image io.Reader) (*model.Message, error) {
+	s.to = toWxID
+	s.images++
+	if image != nil {
+		_, _ = io.Copy(io.Discard, image)
+	}
+	return &model.Message{}, nil
 }
 
 func (s *recordingMessageService) GetChatRoomMember(_, _ string) (*model.ChatRoomMember, error) {
@@ -149,6 +161,82 @@ func TestBusinessRouterFailsClosed(t *testing.T) {
 		t.Fatalf("gateway failure did not fail closed: handled=%t content=%q", ctx.Handled, messages.content)
 	}
 }
+
+func TestBusinessRouterSendsCostImageWithoutText(t *testing.T) {
+	routeClient := &fakeRouteClient{response: BusinessRouteResponse{
+		Handled: true,
+		Reply:   "【40厚白】配料成本\n共计：2012.5斤 = 8434.5元",
+		Image: &BusinessRouteImage{
+			Title: "40厚白",
+			Cells: [][]string{{"阳强配料生产安排单", "", "", ""}},
+			Cost: &BusinessRouteCost{
+				Status:            "complete",
+				TotalWeightJin:    "2012.5",
+				KnownCost:         "8434.5",
+				AverageCostPerJin: strPtr("4.191"),
+				Regions: []BusinessRouteCostRegion{{
+					Name:           "A",
+					TotalWeightJin: "2012.5",
+					Rows: []BusinessRouteCostRow{{
+						MaterialName: "7000F", RawQuantity: "15", WeightJin: "300",
+						Cost: strPtr("1290"), UnitPrice: strPtr("4.3"),
+					}},
+				}},
+			},
+		},
+	}}
+	messages := &recordingMessageService{}
+	ctx := businessContext(messages)
+	var captured string
+	var width int
+	plugin := &BusinessRouterPlugin{
+		client: routeClient,
+		captureHTML: func(_ context.Context, html string, captureWidth int) ([]byte, error) {
+			captured = html
+			width = captureWidth
+			return []byte("png"), nil
+		},
+	}
+
+	plugin.Run(ctx)
+	if !ctx.Handled || messages.images != 1 {
+		t.Fatalf("image not sent: handled=%t images=%d", ctx.Handled, messages.images)
+	}
+	if messages.content != "" {
+		t.Fatalf("text still sent with cost image: %q", messages.content)
+	}
+	if width < 1400 {
+		t.Fatalf("capture width = %d, want editor viewport", width)
+	}
+	for _, want := range []string{"配料成本", "实时预览", "8382元/吨", "7000F", "撤销"} {
+		if !strings.Contains(captured, want) {
+			t.Fatalf("captured html missing %q", want)
+		}
+	}
+}
+
+func TestBusinessRouterFallsBackToTextWhenImageFails(t *testing.T) {
+	routeClient := &fakeRouteClient{response: BusinessRouteResponse{
+		Handled: true,
+		Reply:   "【40厚白】配料成本",
+		Image:   &BusinessRouteImage{Title: "40厚白", Cells: [][]string{{"表"}}},
+	}}
+	messages := &recordingMessageService{}
+	ctx := businessContext(messages)
+	plugin := &BusinessRouterPlugin{
+		client: routeClient,
+		captureHTML: func(context.Context, string, int) ([]byte, error) {
+			return nil, errors.New("chrome missing")
+		},
+	}
+
+	plugin.Run(ctx)
+	if messages.images != 0 || messages.content != "【40厚白】配料成本" {
+		t.Fatalf("fallback failed: images=%d content=%q", messages.images, messages.content)
+	}
+}
+
+func strPtr(value string) *string { return &value }
 
 func TestLoadBusinessRouterConfigFromMountedFile(t *testing.T) {
 	t.Setenv("BUSINESS_GATEWAY_URL", "")

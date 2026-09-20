@@ -67,3 +67,28 @@ func TestResolveCustomerUsesBotContract(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestQueryMaterialCostKeepsKnownCost(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/bot/material-schedules/cost" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if r.URL.Query().Get("keyword") != "网的18厚白" {
+			t.Fatalf("keyword = %q", r.URL.Query().Get("keyword"))
+		}
+		_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"resolved":true,"query":"网的18厚白","cost":{"status":"incomplete","total_weight_jin":"2010","known_cost":"8417.5","missing_materials":["003"]},"sheet":{"cells":[["表"]]}}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "bot-secret", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.QueryMaterialCost(context.Background(), "网的18厚白", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Cost == nil || result.Cost.KnownCost != "8417.5" || result.Cost.Status != "incomplete" {
+		t.Fatalf("known cost dropped: %+v", result.Cost)
+	}
+}

@@ -32,11 +32,19 @@ type MaterialSheetMerge struct {
 	EndColumn   int `json:"end_column"`
 }
 
-// MaterialSheetImage 随回复下发，机器人端据此渲染配料单图片。
+// MaterialSheetImage 随回复下发，机器人端据此渲染「左表+右成本」截图。
 type MaterialSheetImage struct {
-	Title  string               `json:"title"`
-	Cells  [][]string           `json:"cells"`
-	Merges []MaterialSheetMerge `json:"merges,omitempty"`
+	Title              string                                `json:"title"`
+	Cells              [][]string                            `json:"cells"`
+	Merges             []MaterialSheetMerge                  `json:"merges,omitempty"`
+	Cost               *backend.MaterialCostSnapshot         `json:"cost,omitempty"`
+	SheetName          string                                `json:"sheet_name,omitempty"`
+	RowHeaderWidth     float64                               `json:"row_header_width,omitempty"`
+	ColumnHeaderHeight float64                               `json:"column_header_height,omitempty"`
+	ColumnWidths       []float64                             `json:"column_widths,omitempty"`
+	RowHeights         []float64                             `json:"row_heights,omitempty"`
+	CellStyles         [][]string                            `json:"cell_styles,omitempty"`
+	Styles             map[string]backend.MaterialSheetStyle `json:"styles,omitempty"`
 }
 
 // parseCostCommand 解析成本查询指令；与库存指令互不重叠（库存先解析）。
@@ -162,8 +170,20 @@ func costResolvedResponse(cost backend.MaterialCost) Response {
 	reply := renderCostReply(cost)
 	response := Response{Handled: true, Reply: reply}
 	if cost.Sheet != nil && len(cost.Sheet.Cells) > 0 {
-		image := &MaterialSheetImage{Title: costSheetTitle(cost), Cells: cost.Sheet.Cells}
-		for _, merge := range cost.Sheet.Merges {
+		sheet := cost.Sheet
+		image := &MaterialSheetImage{
+			Title:              costSheetTitle(cost),
+			Cells:              sheet.Cells,
+			Cost:               cost.Cost,
+			SheetName:          sheet.SheetName,
+			RowHeaderWidth:     sheet.RowHeaderWidth,
+			ColumnHeaderHeight: sheet.ColumnHeaderHeight,
+			ColumnWidths:       sheet.ColumnWidths,
+			RowHeights:         sheet.RowHeights,
+			CellStyles:         sheet.CellStyles,
+			Styles:             sheet.Styles,
+		}
+		for _, merge := range sheet.Merges {
 			image.Merges = append(image.Merges, MaterialSheetMerge{
 				StartRow: merge.StartRow, EndRow: merge.EndRow,
 				StartColumn: merge.StartColumn, EndColumn: merge.EndColumn,
@@ -201,9 +221,12 @@ func renderCostReply(cost backend.MaterialCost) string {
 	if tons := costPerTonText(snapshot.AverageCostPerJin); tons != "" {
 		fmt.Fprintf(&builder, "\n成本：%s元/吨", tons)
 	}
-	totalCost := "—"
-	if snapshot.TotalCost != nil {
-		totalCost = *snapshot.TotalCost
+	totalCost := strings.TrimSpace(snapshot.KnownCost)
+	if snapshot.TotalCost != nil && strings.TrimSpace(*snapshot.TotalCost) != "" {
+		totalCost = strings.TrimSpace(*snapshot.TotalCost)
+	}
+	if totalCost == "" {
+		totalCost = "—"
 	}
 	fmt.Fprintf(&builder, "\n共计：%s斤 = %s元", snapshot.TotalWeightJin, totalCost)
 	if snapshot.ProductionCost != nil && *snapshot.ProductionCost != "" {

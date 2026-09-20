@@ -21,6 +21,7 @@ func costFixture() backend.MaterialCost {
 		Cost: &backend.MaterialCostSnapshot{
 			Status:            "complete",
 			TotalWeightJin:    "2012.5",
+			KnownCost:         "8434.5",
 			TotalCost:         strPtr("8434.5"),
 			AverageCostPerJin: strPtr("4.191"),
 			Regions: []backend.MaterialCostRegion{{
@@ -33,8 +34,16 @@ func costFixture() backend.MaterialCost {
 			}},
 		},
 		Sheet: &backend.MaterialCostSheet{
-			RowCount: 2, ColumnCount: 4,
-			Cells:  [][]string{{"阳强配料生产安排单", "", "", ""}, {"吹塑机号", "6", "客户代号", "网"}},
+			RowCount: 2, ColumnCount: 4, SheetName: "Sheet1",
+			RowHeaderWidth: 46, ColumnHeaderHeight: 22,
+			ColumnWidths: []float64{93.4, 149.4, 93.4, 149.4},
+			RowHeights:   []float64{40, 30.8},
+			Cells:        [][]string{{"阳强配料生产安排单", "", "", ""}, {"吹塑机号", "6", "客户代号", "网"}},
+			CellStyles:   [][]string{{"s_title", "", "", ""}, {"s_label", "", "", ""}},
+			Styles: map[string]backend.MaterialSheetStyle{
+				"s_title": {FontFamily: "宋体", FontSize: 20, Bold: true, Align: "center"},
+				"s_label": {FontFamily: "宋体", FontSize: 12, Align: "right"},
+			},
 			Merges: []backend.MaterialSheetMerge{{StartRow: 0, EndRow: 0, StartColumn: 0, EndColumn: 3}},
 		},
 	}
@@ -74,6 +83,32 @@ func TestCostQueryNaturalPhrasingResolvesWithImage(t *testing.T) {
 	}
 	if len(response.Image.Merges) != 1 || response.Image.Merges[0].EndColumn != 3 {
 		t.Fatalf("image merges = %+v", response.Image.Merges)
+	}
+	if response.Image.Cost == nil || response.Image.Cost.KnownCost != "8434.5" {
+		t.Fatalf("image cost = %+v", response.Image.Cost)
+	}
+	if len(response.Image.ColumnWidths) != 4 || response.Image.ColumnWidths[0] != 93.4 {
+		t.Fatalf("image column widths = %v", response.Image.ColumnWidths)
+	}
+	if response.Image.Styles["s_title"].FontSize != 20 {
+		t.Fatalf("image styles = %+v", response.Image.Styles)
+	}
+}
+
+func TestCostIncompleteReplyUsesKnownCost(t *testing.T) {
+	api := &fakeBackend{cost: costFixture()}
+	api.cost.Cost.Status = "incomplete"
+	api.cost.Cost.TotalCost = nil
+	api.cost.Cost.AverageCostPerJin = nil
+	api.cost.Cost.KnownCost = "8417.5"
+	api.cost.Cost.MissingMaterials = []string{"003"}
+	service := newTestService(api)
+	response := service.Route(context.Background(), baseRequest("customer@chatroom", "root-wxid", "查成本 网的18厚白", 423))
+	if !strings.Contains(response.Reply, "共计：2010斤 = 8417.5元") && !strings.Contains(response.Reply, "共计：2012.5斤 = 8417.5元") {
+		t.Fatalf("incomplete reply should keep known cost:\n%s", response.Reply)
+	}
+	if response.Image == nil || response.Image.Cost == nil || response.Image.Cost.KnownCost != "8417.5" {
+		t.Fatalf("incomplete image cost = %+v", response.Image)
 	}
 }
 
