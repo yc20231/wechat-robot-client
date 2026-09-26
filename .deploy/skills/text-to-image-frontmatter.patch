@@ -1,0 +1,11 @@
+diff --git a/SKILL.md b/SKILL.md
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: text-to-image
+-description: "AI图片生成与编辑工具。用于根据文字生成图片、修改用户引用的图片、继续修改机器人生成的图片，或使用用户刚发送的一到三张参考图替换引用目标图中的商品、人物和局部元素。"
++description: "AI图片生成与编辑工具（gpt-image-2，支持2048高清档）。支持文生图、引用图片或会话图片编辑、1~3张参考图多图合成，以及会话式改图：可“继续改上一张”、按“第N版/第N张”取历史图、列出最近可改版本（--session / --session-list）。"
+ ---
+ 
+ # Text To Image Skill

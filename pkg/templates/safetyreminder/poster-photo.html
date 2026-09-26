@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1279px; height: 1920px; overflow: hidden; }
+    body { position: relative; background: #f7fbf9; color: #153d2d; font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+    .bg { position: absolute; inset: 0; width: 1279px; height: 1706px; }
+    .title { position: absolute; top: 478px; left: 115px; width: 1050px; height: 130px; line-height: 130px; text-align: center; color: #005331; font-size: 103px; font-weight: 800; white-space: nowrap; }
+    .date { position: absolute; top: 631px; left: 128px; width: 1023px; height: 81px; display: flex; align-items: center; gap: 28px; }
+    .date i { height: 2px; flex: 1; background: #356252; }
+    .date b { flex: 0 0 540px; height: 81px; line-height: 79px; text-align: center; border-block: 1px solid #afc1ba; color: #345d4e; font-size: 54px; font-weight: 700; white-space: nowrap; }
+    .workspace { position: absolute; left: 0; right: 0; top: 746px; bottom: 0; background: #f7fbf9; }
+    .focus { position: absolute; left: 92px; top: 28px; width: 1095px; height: 108px; border-left: 14px solid #e56613; border-block: 3px solid #075a38; padding-left: 36px; display: flex; align-items: center; }
+    .focus strong { color: #075a38; font-size: 51px; font-weight: 800; white-space: nowrap; }
+    .photo { position: absolute; left: 92px; top: 169px; width: 1095px; height: 500px; overflow: hidden; }
+    .photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+    .actions { position: absolute; left: 92px; top: 700px; width: 1095px; height: 240px; display: grid; grid-template-rows: repeat(3, 1fr); border-top: 2px solid #075a38; }
+    .action { display: grid; grid-template-columns: 110px 1fr 58px; align-items: center; border-bottom: 1px solid #b9cbc2; }
+    .num { color: #e56613; font-size: 45px; font-weight: 800; }
+    .copy { color: #153d2d; font-size: 34px; font-weight: 700; white-space: nowrap; }
+    .check { width: 46px; height: 46px; border: 3px solid #075a38; display: flex; align-items: center; justify-content: center; color: #075a38; font-size: 31px; font-weight: 800; }
+    .closing { position: absolute; left: 92px; right: 92px; bottom: 128px; height: 94px; border-top: 3px solid #075a38; display: flex; align-items: center; justify-content: space-between; }
+    .closing strong { color: #075a38; font-size: 39px; font-weight: 800; white-space: nowrap; }
+    .closing span { color: #e56613; font-size: 25px; font-weight: 800; white-space: nowrap; }
+    .company { position: absolute; left: 0; right: 0; bottom: 0; height: 100px; background: #008540; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 46px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <img class="bg" src="data:image/png;base64,{{.Background}}" alt="">
+  <div class="title">安全生产每日风险提醒</div>
+  <div class="date"><i></i><b>{{.DateChinese}}</b><i></i></div>
+  <main class="workspace">
+    <div class="focus"><strong>今日重点：{{.Focus}}</strong></div>
+    <div class="photo"><img src="data:image/png;base64,{{.Photo}}" alt=""></div>
+    <section class="actions">
+      <div class="action"><div class="num">01</div><div class="copy">{{index .Points 0}}</div><div class="check">✓</div></div>
+      <div class="action"><div class="num">02</div><div class="copy">{{index .Points 1}}</div><div class="check">✓</div></div>
+      <div class="action"><div class="num">03</div><div class="copy">{{index .Points 2}}</div><div class="check">✓</div></div>
+    </section>
+    <div class="closing"><strong>{{.Slogan}}</strong><span>每日安全</span></div>
+    <div class="company">福建省阳强塑胶制品有限公司</div>
+  </main>
+  <script>
+    window.posterReady = Promise.all([
+      document.fonts ? document.fonts.ready : Promise.resolve(),
+      ...Array.from(document.images).map(img => img.complete ? Promise.resolve() : new Promise(resolve => { img.onload = img.onerror = resolve; }))
+    ]).then(() => {
+      for (const element of document.querySelectorAll('.focus strong, .copy, .closing strong')) {
+        let size = parseFloat(getComputedStyle(element).fontSize);
+        while (element.scrollWidth > element.clientWidth && size > 23) {
+          size -= 1;
+          element.style.fontSize = size + 'px';
+        }
+      }
+      return true;
+    });
+  </script>
+</body>
+</html>

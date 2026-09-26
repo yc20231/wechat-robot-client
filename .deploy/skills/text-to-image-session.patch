@@ -1,0 +1,179 @@
+diff --git a/SKILL.md b/SKILL.md
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -22,6 +22,7 @@
+ - 用户引用图片并要求修改颜色、背景、文字、商品、人物或局部元素
+ - 用户要求用刚发送的参考图替换引用目标图中的内容
+ - 用户明确要求制作电商主图、产品主图、商品宣传图或海报
++- 用户没有引用图片，但说「继续改」「接着」「把刚才那张/上一张改一下」「第N版/第2版」等，要求修改机器人刚生成或自己刚发送的图片
+ 
+ ## 参数说明（JSON Schema）
+ 
+@@ -91,6 +92,9 @@
+ - `--ratio <宽高比>` 可选
+ - `--resolution <分辨率>` 可选
+ - `--reference-count <数量>` 可选；使用同一群、同一用户在5分钟内最近发送的1到3张图片作为参考图
++- `--session latest` 可选；没有引用图片时，把本会话最近一张可修改图片（机器人生成的或该用户自己发的）当作目标图执行编辑
++- `--session <第N版>` 可选；把本会话最近第 N 张（1=最新）可修改图片当作目标图
++- `--session-list` 可选；只列出本会话最近可修改图片的编号清单，不生成图片（用于确认“第N版”指哪张）
+ 
+ ## 依赖安装
+ 
+@@ -117,6 +121,15 @@
+ 10. 脚本会直接把结果发送到微信并持久化图片地址，不要再发送额外文字或重复图片。
+ 11. 使用 OpenAI GPT Image（gpt-image-2）时，`negative_prompt` 不生效；不要把“不要出现X”当作强制约束。需要避免的元素改为正向描述（例如“纯色简洁背景、画面干净无多余文字”）。
+ 12. 用户要求“保持版式/文字不变”时，gpt-image 对精确版式和文字还原存在已知局限：如实转达用户的编辑意图，但不得承诺逐像素还原；如用户反复要求文字/版式精确，可向用户说明“文字排版会尽量保留、无法保证与原图完全一致”，不要为了满足硬要求改写或丢弃用户真实意图。
++13. 会话式（用户没有引用图片，但明显是要“继续改上一张”时的处理）：
++    - 用户说“继续、接着、把刚才那张/上一张改一下、再调一下”等，没有引用图片 → 传 `--session latest`：脚本会用本会话最近一张可修改图片（机器人刚生成的，或该用户自己刚发的）作为目标图。
++    - 用户说“第N版/N轮/第N张” → 先传 `--session-list` 确认编号（1=最新），再传 `--session <N>`；编号超出范围时如实回复本会话实际有几张可改。
++    - 会话只认“本群+本人”，只用机器人生成的或当前说话人自己发过的图片，不得把其他群成员发的图片当作目标。
++    - 目标优先级固定：引用图片 > 第N版/上一张（会话） > 文生图。只有确定是要改会话中的旧图才传 `--session`，普通新画图不要传。
++14. 会话式示例：
++    - `python3 scripts/text_to_image.py --prompt '把背景换成浅灰，其余不变' --model none --session latest`
++    - `python3 scripts/text_to_image.py --prompt '这一版打火机再亮一点' --model none --session 2`
++    - `python3 scripts/text_to_image.py --prompt '' --model none --session-list`（仅列出本会话可改图片清单，prompt 留空）
+ 
+ ## 回复要求
+ 
+diff --git a/scripts/text_to_image.py b/scripts/text_to_image.py
+--- a/scripts/text_to_image.py
++++ b/scripts/text_to_image.py
+@@ -141,6 +141,57 @@
+     return rows
+ 
+ 
++def _session_recent_images(
++    conn,
++    chat_id: str,
++    bot_wx_id: str,
++    sender_wx_id: str,
++    current_message_id: int,
++    limit: int = 8,
++) -> list[dict]:
++    """本会话(群/私聊)里最近可继续修改的图片消息,按 id 倒序(第1张=最新)。
++
++    只认两种来源,避免串到其他群成员的话：
++      - 机器人自己生成后发出去的图(type=3 且 sender_wxid=机器人);
++      - 当前说话人自己发过的图。
++    图片地址取自 messages.attachment_url(客户端发送时已持久化到 OSS 的长效地址)。
++    """
++    if not chat_id:
++        return []
++    senders = []
++    if bot_wx_id:
++        senders.append(bot_wx_id)
++    if sender_wx_id and sender_wx_id != bot_wx_id:
++        senders.append(sender_wx_id)
++    if not senders:
++        return []
++    senders_placeholders = ",".join(["%s"] * len(senders))
++    rows = _query_all(
++        conn,
++        f"""
++        SELECT id, attachment_url, sender_wxid
++        FROM messages
++        WHERE type = 3
++          AND attachment_url <> ''
++          AND id < %s
++          AND (from_wxid = %s OR to_wxid = %s)
++          AND sender_wxid IN ({senders_placeholders})
++        ORDER BY id DESC
++        LIMIT %s
++        """,
++        (current_message_id, chat_id, chat_id, *senders, limit),
++    )
++    return rows
++
++
++def _print_session_list(recent_images: list[dict], bot_wx_id: str) -> None:
++    lines = ["本会话最近可继续修改的图片(编号从1开始,1=最新):"]
++    for index, row in enumerate(recent_images, start=1):
++        sender_kind = "机器人" if row.get("sender_wxid") == bot_wx_id else "你"
++        lines.append(f"{index}. {sender_kind}发送的图片 #{row.get('id')}")
++    sys.stdout.write("\n".join(lines))
++
++
+ def _find_recent_reference_images(
+     conn,
+     from_wx_id: str,
+@@ -866,6 +917,8 @@
+     parser.add_argument("--resolution", default="")
+     parser.add_argument("--reference-count", type=int, default=0)
+     parser.add_argument("--use-latest-reference", action="store_true")
++    parser.add_argument("--session", default="")
++    parser.add_argument("--session-list", action="store_true")
+ 
+     namespace, unknown = parser.parse_known_args(argv)
+     if unknown:
+@@ -878,6 +931,8 @@
+         "ratio": namespace.ratio,
+         "resolution": namespace.resolution,
+         "reference_count": namespace.reference_count or (1 if namespace.use_latest_reference else 0),
++        "session": str(namespace.session or "").strip(),
++        "session_list": bool(namespace.session_list),
+     }
+ 
+ 
+@@ -893,7 +948,8 @@
+         return 1
+ 
+     prompt = params.get("prompt", "").strip()
+-    if not prompt:
++    session_list_only = bool(params.get("session_list", False))
++    if not prompt and not session_list_only:
+         sys.stdout.write("缺少画图提示词\n")
+         return 1
+ 
+@@ -912,6 +968,8 @@
+     sender_wx_id = os.environ.get("ROBOT_SENDER_WX_ID", "").strip()
+     current_message_id = _coerce_int(os.environ.get("ROBOT_MESSAGE_ID"), 0, 0, 2**63 - 1)
+     quoted_message_id = _coerce_int(os.environ.get("ROBOT_REF_MESSAGE_ID"), 0, 0, 2**63 - 1)
++    session_value = str(params.get("session", "") or "").strip()
++    bot_wx_id = os.environ.get("ROBOT_WX_ID", "").strip()
+ 
+     # Connect to DB, load settings, and resolve quoted/reference images.
+     try:
+@@ -923,6 +981,43 @@
+     try:
+         enabled, settings_json = load_drawing_settings(conn, from_wx_id)
+         target_message_id = quoted_message_id if _image_message_exists(conn, quoted_message_id) else 0
++        if target_message_id == 0 and (session_value or session_list_only):
++            recent_images = _session_recent_images(
++                conn,
++                from_wx_id,
++                bot_wx_id,
++                sender_wx_id,
++                current_message_id,
++                8,
++            )
++            if session_list_only:
++                _print_session_list(recent_images, bot_wx_id)
++                return 0
++            if session_value:
++                if session_value == "latest":
++                    if not recent_images:
++                        sys.stdout.write(
++                            "本会话还没有可继续修改的图片：请先 `@机器人 生成一张...`，或引用一张图片再改\n"
++                        )
++                        return 1
++                    target_message_id = recent_images[0]["id"]
++                else:
++                    try:
++                        session_index = int(session_value)
++                    except (TypeError, ValueError):
++                        session_index = 0
++                    if session_index <= 0:
++                        sys.stdout.write(f"会话目标参数无效: {session_value}\n")
++                        return 1
++                    recent_count = len(recent_images)
++                    if session_index > recent_count:
++                        sys.stdout.write(
++                            f"本会话最近只有 {recent_count} 张可修改图片，没有第 {session_index} 版\n"
++                        )
++                        return 1
++                    target_message_id = recent_images[session_index - 1]["id"]
++        if target_message_id and not _image_message_exists(conn, target_message_id):
++            target_message_id = 0
+         reference_message_ids: list[int] = []
+         if target_message_id and reference_count > 0:
+             reference_message_ids = _find_recent_reference_images(

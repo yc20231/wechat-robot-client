@@ -1,11 +1,61 @@
 package safetyreminder
 
 import (
+	"bytes"
+	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 )
+
+func TestCustomTopicPhotoUsesMatchingScene(t *testing.T) {
+	directory := t.TempDir()
+	photoPath := filepath.Join(directory, "scene.png")
+	photo := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	photo.Set(0, 0, color.RGBA{R: 50, G: 120, B: 80, A: 255})
+	var pngBytes bytes.Buffer
+	if err := png.Encode(&pngBytes, photo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(photoPath, pngBytes.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	topic := Topic{Focus: "注塑机合模防护", Points: [3]string{"检查安全门", "确认急停", "禁止伸手"}, Slogan: "先确认再开机", Photo: "scene.png"}
+	topicBytes, err := json.Marshal([]Topic{topic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicsPath := filepath.Join(directory, "topics.json")
+	if err := os.WriteFile(topicsPath, topicBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	topics, err := LoadTopics(topicsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := ContentForDate(time.Date(2026, 10, 9, 0, 0, 0, 0, time.Local), topics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content.PhotoPath != photoPath {
+		t.Fatalf("photo path = %q, want %q", content.PhotoPath, photoPath)
+	}
+	html, err := renderPhotoHTML(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"2026年10月9日 星期五", "注塑机合模防护", "检查安全门", "data:image/png;base64,"} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("photo poster missing %q", expected)
+		}
+	}
+}
 
 func TestDefaultTopicsAndDailySelection(t *testing.T) {
 	topics, err := LoadTopics("")

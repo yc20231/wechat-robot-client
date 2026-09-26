@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,18 +12,21 @@ import (
 )
 
 type Topic struct {
-	Focus  string    `json:"focus"`
-	Points [3]string `json:"points"`
-	Slogan string    `json:"slogan"`
+	Focus     string    `json:"focus"`
+	Points    [3]string `json:"points"`
+	Slogan    string    `json:"slogan"`
+	Photo     string    `json:"photo,omitempty"`
+	PhotoPath string    `json:"-"`
 	// Tag 非空表示天气触发的插播专题(rain/heat)，不参与常规轮换
 	Tag string `json:"tag,omitempty"`
 }
 
 type PosterContent struct {
-	Date   time.Time
-	Focus  string
-	Points [3]string
-	Slogan string
+	Date      time.Time
+	Focus     string
+	Points    [3]string
+	Slogan    string
+	PhotoPath string
 }
 
 func LoadTopics(path string) ([]Topic, error) {
@@ -55,6 +59,12 @@ func LoadTopics(path string) ([]Topic, error) {
 				return nil, fmt.Errorf("安全提醒主题库第 %d 项的第 %d 条内容为空", index+1, pointIndex+1)
 			}
 		}
+		if topic.Photo != "" {
+			if path == "" || !filepath.IsLocal(topic.Photo) {
+				return nil, fmt.Errorf("安全提醒主题库第 %d 项的场景图片路径无效", index+1)
+			}
+			topics[index].PhotoPath = filepath.Join(filepath.Dir(path), topic.Photo)
+		}
 	}
 	return topics, nil
 }
@@ -66,10 +76,11 @@ func ContentForDate(date time.Time, topics []Topic) (PosterContent, error) {
 	}
 	topic := topics[cycleIndexForDate(date, len(topics))]
 	return PosterContent{
-		Date:   date,
-		Focus:  topic.Focus,
-		Points: topic.Points,
-		Slogan: topic.Slogan,
+		Date:      date,
+		Focus:     topic.Focus,
+		Points:    topic.Points,
+		Slogan:    topic.Slogan,
+		PhotoPath: topic.PhotoPath,
 	}, nil
 }
 
@@ -97,10 +108,11 @@ func ContentForWeather(date time.Time, topics []Topic, weather *Weather) PosterC
 		if len(pool) > 0 {
 			topic := pool[cycleIndexForDate(date, len(pool))]
 			return PosterContent{
-				Date:   date,
-				Focus:  topic.Focus,
-				Points: topic.Points,
-				Slogan: topic.Slogan,
+				Date:      date,
+				Focus:     topic.Focus,
+				Points:    topic.Points,
+				Slogan:    topic.Slogan,
+				PhotoPath: topic.PhotoPath,
 			}
 		}
 	}

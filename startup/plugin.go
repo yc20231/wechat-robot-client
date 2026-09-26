@@ -10,6 +10,8 @@ func RegisterMessagePlugin() {
 	vars.MessagePlugin = plugin.NewMessagePlugin()
 	// 业务消息必须在内置 AI 前完成权限校验和确定性回复。
 	vars.MessagePlugin.Register(plugins.NewBusinessRouterPlugin())
+	// 塑料袋计算器：计算类触发词优先于 AI 聊天
+	vars.MessagePlugin.Register(plugins.NewCalculatorPlugin())
 	// 群聊聊天插件
 	vars.MessagePlugin.Register(plugins.NewChatRoomAIChatPlugin())
 	vars.MessagePlugin.Register(plugins.NewChatRoomMemberBlacklistPlugin())

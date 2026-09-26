@@ -1,0 +1,131 @@
+diff --git a/SKILL.md b/SKILL.md
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -115,6 +115,8 @@
+ 8. 双图替换示例：`python3 scripts/text_to_image.py --prompt '用参考图中的商品替换目标图里的打火机，保持版式和文字不变' --model none --reference-count 1`。
+ 9. 四图替换示例：`python3 scripts/text_to_image.py --prompt '用参考图1的商品、参考图2的人物、参考图3的背景替换到目标图，保持目标图构图、版式和文字不变' --model none --reference-count 3`。
+ 10. 脚本会直接把结果发送到微信并持久化图片地址，不要再发送额外文字或重复图片。
++11. 使用 OpenAI GPT Image（gpt-image-2）时，`negative_prompt` 不生效；不要把“不要出现X”当作强制约束。需要避免的元素改为正向描述（例如“纯色简洁背景、画面干净无多余文字”）。
++12. 用户要求“保持版式/文字不变”时，gpt-image 对精确版式和文字还原存在已知局限：如实转达用户的编辑意图，但不得承诺逐像素还原；如用户反复要求文字/版式精确，可向用户说明“文字排版会尽量保留、无法保证与原图完全一致”，不要为了满足硬要求改写或丢弃用户真实意图。
+ 
+ ## 回复要求
+ 
+diff --git a/scripts/text_to_image.py b/scripts/text_to_image.py
+--- a/scripts/text_to_image.py
++++ b/scripts/text_to_image.py
+@@ -364,35 +364,83 @@
+                     return (width, height) if width > 0 and height > 0 else None
+                 image_file.seek(segment_length - 2, 1)
+     except OSError:
++        return None
++
++
++# gpt-image 输出尺寸集。均为 16 的倍数、像素总量在官方范围
++# (655,360 ~ 8,294,400) 内、长宽比 <= 3:1。
++# standard: 常规档(便宜、微信端足够);hd: 放开 2048 高清档(细节更好,成本更高)。
++_GPT2_STANDARD_SIZES = (
++    ("1024x1024", 1.0),
++    ("1024x1536", 1024 / 1536),
++    ("1536x1024", 1536 / 1024),
++)
++_GPT2_HD_SIZES = (
++    ("1024x1024", 1.0),
++    ("1536x1024", 1536 / 1024),
++    ("1024x1536", 1024 / 1536),
++    ("2048x2048", 1.0),
++    ("2048x1152", 2048 / 1152),
++    ("1152x2048", 1152 / 2048),
++    ("2048x1536", 2048 / 1536),
++    ("1536x2048", 1536 / 2048),
++)
++
++
++def _parse_size(value: str) -> tuple[int, int] | None:
++    try:
++        width, height = value.lower().replace(" ", "").split("x", 1)
++        w, h = int(width), int(height)
++        return (w, h) if w > 0 and h > 0 else None
++    except (ValueError, AttributeError):
+         return None
+ 
+ 
++def _openai_hd_enabled(config: dict) -> bool:
++    return str(config.get("openai_hd", "false") or "false").lower() in {
++        "1", "true", "yes", "on", "auto",
++    }
++
++
+ def _openai_compatible_size(config: dict, ratio: str, image_path: str = "") -> str:
++    """为 gpt-image 选择输出尺寸。
++
++    - 显式配置 size（非 auto）时原样返回,优先于一切;
++    - 有目标图(图生图)时按目标图宽高比选最接近的档位,避免细节被压到方图;
++    - 无图(文生图)时按用户比例/默认比例选;
++    - openai_hd=true 时使用 2048 高清档,否则保持 1024 常规档。
++    """
+     configured = str(config.get("size", "") or "").strip()
+     if configured and configured.lower() != "auto":
+         return configured
+ 
+     aspect_ratio = 0.0
+-    normalized_ratio = (ratio or "").replace(" ", "").lower()
+-    ratio_parts = normalized_ratio.split(":", 1)
+-    if len(ratio_parts) == 2:
+-        try:
+-            aspect_ratio = float(ratio_parts[0]) / float(ratio_parts[1])
+-        except (ValueError, ZeroDivisionError):
+-            aspect_ratio = 0.0
+-
+-    if aspect_ratio <= 0 and image_path:
++    if image_path:
+         dimensions = _read_image_dimensions(image_path)
+         if dimensions:
+             aspect_ratio = dimensions[0] / dimensions[1]
+ 
+-    if 0 < aspect_ratio < 0.9:
+-        return "1024x1536"
+-    if aspect_ratio > 1.1:
+-        return "1536x1024"
+-    return "1024x1024"
++    if aspect_ratio <= 0:
++        normalized_ratio = (ratio or "").replace(" ", "").lower()
++        ratio_parts = normalized_ratio.split(":", 1)
++        if len(ratio_parts) == 2:
++            try:
++                aspect_ratio = float(ratio_parts[0]) / float(ratio_parts[1])
++            except (ValueError, ZeroDivisionError):
++                aspect_ratio = 0.0
+ 
++    candidates = _GPT2_HD_SIZES if _openai_hd_enabled(config) else _GPT2_STANDARD_SIZES
++    if aspect_ratio <= 0:
++        return candidates[0][0]  # 无比例(默认文生图)保持方图 1024x1024
+ 
++    best_size, best_distance = candidates[0][0], float("inf")
++    for size, size_ratio in candidates:
++        distance = abs(size_ratio - aspect_ratio)
++        if distance < best_distance:
++            best_size, best_distance = size, distance
++    return best_size
++
++
+ def _openai_prompt(prompt: str, negative_prompt: str) -> str:
+     if not negative_prompt:
+         return prompt
+@@ -713,7 +761,7 @@
+ 
+     kwargs = {
+         "model": model or "gpt-image-2",
+-        "prompt": _openai_prompt(prompt, negative_prompt),
++        "prompt": _openai_prompt(prompt, ""),  # gpt-image 不支持负向提示词
+         "n": _coerce_int(config.get("n"), 1, 1, 10),
+         "size": _openai_compatible_size(config, ratio),
+         "quality": quality,
+@@ -749,7 +797,7 @@
+ 
+     client = _openai_client(config)
+     output_format = _openai_output_format(config)
+-    edit_prompt = _openai_prompt(prompt, negative_prompt)
++    edit_prompt = _openai_prompt(prompt, "")  # gpt-image 不支持负向提示词
+     if len(image_paths) > 1:
+         reference_count = len(image_paths) - 1
+         edit_prompt = (

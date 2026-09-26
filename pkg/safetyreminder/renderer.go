@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	htmltemplate "html/template"
+	"image/png"
 	"net/url"
 	"os"
 	"time"
@@ -17,25 +18,70 @@ import (
 const (
 	PosterWidth              = 1279
 	PosterHeight             = 1706
+	PhotoPosterHeight        = 1920
 	posterBackgroundVariants = 5
 )
 
 type posterTemplateData struct {
-	Background string
-	Date       string
-	Focus      string
-	Points     [3]string
-	Slogan     string
+	Background  string
+	Date        string
+	Focus       string
+	Points      [3]string
+	Slogan      string
+	Photo       string
+	DateChinese string
 }
 
 var chineseWeekdays = [...]string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}
 
 func Render(ctx context.Context, content PosterContent) ([]byte, error) {
+	if content.PhotoPath != "" {
+		htmlContent, err := renderPhotoHTML(content)
+		if err != nil {
+			return nil, err
+		}
+		return capturePoster(ctx, htmlContent, PhotoPosterHeight)
+	}
 	htmlContent, err := renderHTML(content)
 	if err != nil {
 		return nil, err
 	}
-	return capturePoster(ctx, htmlContent)
+	return capturePoster(ctx, htmlContent, PosterHeight)
+}
+
+func renderPhotoHTML(content PosterContent) (string, error) {
+	photoBytes, err := os.ReadFile(content.PhotoPath)
+	if err != nil {
+		return "", fmt.Errorf("读取安全提醒场景图片 %s 失败: %w", content.PhotoPath, err)
+	}
+	if _, err := png.DecodeConfig(bytes.NewReader(photoBytes)); err != nil {
+		return "", fmt.Errorf("安全提醒场景图片 %s 不是有效 PNG: %w", content.PhotoPath, err)
+	}
+	templateBytes, err := templateassets.Assets.ReadFile("poster-photo.html")
+	if err != nil {
+		return "", fmt.Errorf("读取安全提醒图文模板失败: %w", err)
+	}
+	tpl, err := htmltemplate.New("poster-photo.html").Parse(string(templateBytes))
+	if err != nil {
+		return "", fmt.Errorf("解析安全提醒图文模板失败: %w", err)
+	}
+	backgroundBytes, err := templateassets.Assets.ReadFile(backgroundAssetForDate(content.Date))
+	if err != nil {
+		return "", fmt.Errorf("读取安全提醒图文背景失败: %w", err)
+	}
+	data := posterTemplateData{
+		Background:  base64.StdEncoding.EncodeToString(backgroundBytes),
+		Photo:       base64.StdEncoding.EncodeToString(photoBytes),
+		DateChinese: fmt.Sprintf("%d年%d月%d日 %s", content.Date.Year(), content.Date.Month(), content.Date.Day(), chineseWeekdays[content.Date.Weekday()]),
+		Focus:       content.Focus,
+		Points:      content.Points,
+		Slogan:      content.Slogan,
+	}
+	var output bytes.Buffer
+	if err := tpl.Execute(&output, data); err != nil {
+		return "", fmt.Errorf("生成安全提醒图文页面失败: %w", err)
+	}
+	return output.String(), nil
 }
 
 func renderHTML(content PosterContent) (string, error) {
@@ -74,7 +120,7 @@ func backgroundAssetForDate(date time.Time) string {
 	return fmt.Sprintf("assets/poster-background-%d.png", variant)
 }
 
-func capturePoster(ctx context.Context, htmlContent string) ([]byte, error) {
+func capturePoster(ctx context.Context, htmlContent string, height int) ([]byte, error) {
 	tempFile, err := os.CreateTemp("", "safety_reminder_*.html")
 	if err != nil {
 		return nil, fmt.Errorf("创建安全提醒临时页面失败: %w", err)
@@ -94,7 +140,7 @@ func capturePoster(ctx context.Context, htmlContent string) ([]byte, error) {
 		chromedp.DisableGPU,
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.WindowSize(PosterWidth, PosterHeight),
+		chromedp.WindowSize(PosterWidth, height),
 	)
 	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(ctx, allocatorOptions...)
 	defer allocatorCancel()
@@ -106,7 +152,7 @@ func capturePoster(ctx context.Context, htmlContent string) ([]byte, error) {
 	fileURL := url.URL{Scheme: "file", Path: tempFileName}
 	var pngBytes []byte
 	if err := chromedp.Run(timeoutCtx,
-		chromedp.EmulateViewport(PosterWidth, PosterHeight),
+		chromedp.EmulateViewport(PosterWidth, int64(height)),
 		chromedp.Navigate(fileURL.String()),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 		chromedp.Evaluate(`window.posterReady`, nil),

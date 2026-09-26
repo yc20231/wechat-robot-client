@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 960px;
+    background: #ffffff;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    color: #253a5e;
+    padding: 44px 48px 52px;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 36px;
+  }
+  .brand { display: flex; align-items: center; }
+  .brand img { height: 110px; width: auto; display: block; }
+  .title { font-size: 44px; font-weight: 800; color: #253a5e; letter-spacing: 2px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  td {
+    border: 2px solid #d9d9d9;
+    padding: 34px 36px;
+    vertical-align: middle;
+    color: #253a5e;
+  }
+  td.label {
+    width: 28%;
+    font-size: 40px;
+    font-weight: 700;
+  }
+  td.value { font-size: 42px; }
+  .metric { font-size: 80px; font-weight: 800; color: #4285f4; line-height: 1; }
+  .metric small { margin-left: 12px; font-size: 38px; font-weight: 700; }
+  .bag-name { color: #e60000; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <img src="{{.LogoDataURI}}" alt="阳强">
+    </div>
+    <div class="title">计算结果</div>
+  </div>
+  <table>
+    <tr>
+      <td class="label">袋子类型</td>
+      <td class="value">{{.MaterialLabel}} - <span class="bag-name">{{.BagLabel}}</span></td>
+    </tr>
+    <tr>
+      <td class="label">规格</td>
+      <td class="value">{{.SpecLine}}</td>
+    </tr>
+    <tr>
+      <td class="label">克重</td>
+      <td class="value"><span class="metric">{{.WeightValue}}<small>克</small></span></td>
+    </tr>
+    <tr>
+      <td class="label">单层丝数</td>
+      <td class="value"><span class="metric">{{.SilkValue}}<small>丝</small></span></td>
+    </tr>
+  </table>
+</body>
+</html>
