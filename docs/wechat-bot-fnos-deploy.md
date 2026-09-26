@@ -684,7 +684,7 @@ docker exec client_xiW55bPyM3D4o6s6 \
 docker restart client_xiW55bPyM3D4o6s6 >/dev/null
 ```
 
-安装器会先备份当前 Skill，再下载已锁定版本的上游文件、使用现有 Git 应用仓库补丁（含 gpt-image-2 优化补丁）并做 Python 语法检查。后台绘图 JSON 保持只启用 OpenAI，推荐配置（针对 gpt-image-2）：
+安装器会先备份当前 Skill，再下载已锁定版本的上游文件、使用现有 Git 应用仓库补丁并做 Python 语法检查。后台绘图 JSON 保持只启用 OpenAI：
 
 ```json
 {
@@ -694,13 +694,7 @@ docker restart client_xiW55bPyM3D4o6s6 >/dev/null
     "api_key": "不要写入文档或 Git",
     "model": "gpt-image-2",
     "edit_input_mode": "auto",
-    "n": 1,
-    "quality": "high",
-    "size": "auto",
-    "openai_hd": true,
-    "background": "auto",
-    "moderation": "auto",
-    "output_format": "png"
+    "n": 1
   },
   "default_model": "gpt-image-2",
   "output_count": 1
@@ -709,17 +703,7 @@ docker restart client_xiW55bPyM3D4o6s6 >/dev/null
 
 `OpenAI.edit_input_mode` 支持 `auto`、`file` 和 `url`，默认使用 `auto`。`auto` 先按标准 OpenAI multipart 文件方式编辑；只有上游明确要求 `image_url` 时，才使用消息中已持久化的 OSS 公网地址重试一次。额度、鉴权、内容策略和超时错误不会重试。URL 模式暂不猜测未文档化的多图参数，多图仍要求中转站支持标准文件上传。
 
-`OpenAI.size` 可以省略或设为 `auto`（推荐）。Skill 不会把 `size=auto` 直接发送给中转站：文生图按用户比例、图生图按目标图宽高比，从 `1024x1024`、`1024x1536`、`1536x1024`（常规档）或 `2048x2048`、`2048x1152`、`1152x2048`、`2048x1536`、`1536x2048`（高清档）中选择最接近的尺寸。`OpenAI.openai_hd` 设为 `true` 时启用 2048 高清档（细节更好、成本更高），默认不开启；只有明确配置非 `auto` 的 `size` 时才固定使用该尺寸。`OpenAI.quality` 建议成图用 `high`（gpt-image-2 价格约为 medium 的 4 倍，按需降为 `medium` 省钱）。gpt-image 不支持透明背景，`background: transparent` 会自动降级为 `auto`；也不支持负向提示词，`negative_prompt` 会被忽略。
-
-### 5.5.1 会话式改图（可继续改上一张）
-
-`text-to-image` 补丁链加入“会话式改图”：不引用图片也能接着上一步改图。使用方式（用户侧）：
-
-- `@机器人 继续/接着/把刚才那张背景换蓝` —— 不引用，机器人自动用“本会话最近一张可修改图片”（机器人刚生成的，或该用户自己刚发的）作为目标图执行编辑；
-- `@机器人 改第2版` —— 机器人先列出本会话最近可修改图片的编号（`--session-list`，1=最新），再按编号取那一张（`--session 2`）；
-- 引用图片仍然优先级最高，用于精确指定任意历史图片；说“重新来/新画一张”则回到文生图。
-
-实现说明：会话不建新表，直接读客户端 `messages` 表 `type=3` 且 `attachment_url<>''` 的图片消息（机器人生成发出去后客户端已把 OSS 地址落库），限定为本群 + 机器人或当前说话人，避免串到其他群成员；下载复用 `chat/image/download` 接口。新增参数 `--session latest`、`--session <N>`、`--session-list`，SKILL.md 已内置对应规则。
+`OpenAI.size` 可以省略或设为 `auto`。Skill 不会把 `size=auto` 直接发送给中转站：文生图会按用户指定的比例选择兼容尺寸；引用图片编辑未指定比例时，会读取目标 PNG/JPEG 的宽高并自动选择 `1024x1536`、`1536x1024` 或 `1024x1024`。只有明确配置非 `auto` 的 `size` 时才固定使用该尺寸。
 
 该版本支持三种流程：
 
@@ -857,8 +841,7 @@ chmod 600 "$CLIENT_DATA/skills/.safety-reminder.json"
   ],
   "send_on_weekends": true,
   "test_token": "替换为 openssl rand -hex 32 生成的随机值",
-  "topics_file": "",
-  "static_posters_dir": ""
+  "topics_file": ""
 }
 ```
 
@@ -873,9 +856,6 @@ chmod 600 "$CLIENT_DATA/skills/.safety-reminder.json"
 | `send_on_weekends` | 周六、周日是否发送 |
 | `test_token` | 保护预览和手动试发接口，不得提交到 Git |
 | `topics_file` | 可选自定义主题 JSON；留空使用内置 120 组内容 |
-| `static_posters_dir` | 可选按日期静态海报目录；存在 `YYYY-MM-DD.png` 时优先使用，缺失或无效时回退动态模板 |
-
-静态海报只需放入要覆盖的日期。例如 `/data/skills/safety-reminder-static/2026-08-22.png` 只影响 2026 年 8 月 22 日；其他日期继续使用主题库动态生成。静态文件必须是普通 PNG 文件。部署验收应调用下方只读 `/preview` 接口并比较文件哈希，不要调用 `/send`，避免向正式群发送测试内容。
 
 重新创建客户端容器后，先只预览、不发送微信。下面命令会把图片保存到飞牛当前目录：
 
