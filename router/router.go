@@ -122,6 +122,8 @@ func RegisterRouter(r *gin.Engine) error {
 	// 消息相关接口
 	api.POST("/robot/message/revoke", messageCtl.MessageRevoke)
 	api.POST("/robot/message/send/text", messageCtl.SendTextMessage)
+	api.GET("/robot/production-notice/health", controller.ProductionNoticeHealth)
+	api.POST("/robot/production-notice/send", controller.ProductionNoticeSend)
 	api.POST("/robot/message/send/longtext", messageCtl.SendLongTextMessage)
 	api.POST("/robot/message/send/masssend", messageCtl.SendGroupMassMsgText)
 	api.POST("/robot/message/send/image", messageCtl.SendImageMessage)

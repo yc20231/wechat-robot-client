@@ -760,6 +760,14 @@ func (s *MessageService) MessageRevoke(req dto.MessageCommonRequest) error {
 }
 
 func (s *MessageService) SendTextMessage(toWxID, content string, at ...string) error {
+	return s.sendTextMessage(toWxID, content, false, at...)
+}
+
+func (s *MessageService) SendProductionNoticeMessage(toWxID, content string) error {
+	return s.sendTextMessage(toWxID, content, true)
+}
+
+func (s *MessageService) sendTextMessage(toWxID, content string, strict bool, at ...string) error {
 	atContent := ""
 	if len(at) > 0 {
 		// 手动拼接上 @ 符号和昵称
@@ -810,6 +818,11 @@ func (s *MessageService) SendTextMessage(toWxID, content string, at ...string) e
 	newMessages, err := vars.RobotRuntime.SendTextMessage(toWxID, content, at...)
 	if err != nil {
 		return err
+	}
+	if strict {
+		if err := robot.ValidateProductionNoticeReceipt(newMessages); err != nil {
+			return err
+		}
 	}
 
 	// 通过机器人发送的消息，消息同步接口获取不到，所以这里需要手动入库

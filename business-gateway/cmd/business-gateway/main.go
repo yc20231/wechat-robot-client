@@ -17,6 +17,7 @@ import (
 	"business-gateway/internal/dedup"
 	"business-gateway/internal/group"
 	"business-gateway/internal/httpapi"
+	"business-gateway/internal/notices"
 	"business-gateway/internal/route"
 )
 
@@ -53,6 +54,14 @@ func main() {
 
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if cfg.NoticeEnabled {
+		worker, err := notices.New(notices.Config{BackendURL: cfg.BackendURL, BackendToken: cfg.NoticeToken, RobotURL: cfg.NoticeRobotURL, RobotToken: cfg.NoticeRobotToken, AllowedGroups: cfg.NoticeAllowedGroups}, groups)
+		if err != nil {
+			log.Printf("生产通知配置无效，已关闭通知 worker（查库存仍正常运行）: %v", err)
+		} else {
+			go worker.Run(shutdownCtx)
+		}
+	}
 	go func() {
 		<-shutdownCtx.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

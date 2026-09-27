@@ -10,20 +10,25 @@ import (
 )
 
 type Config struct {
-	ListenAddr         string
-	BindingsFile       string
-	AdminsFile         string
-	AuditFile          string
-	BackendURL         string
-	BotToken           string
-	InternalRouteToken string
-	WebhookToken       string
-	AdminToken         string
-	OwnerWxIDs         map[string]struct{}
-	BackendTimeout     time.Duration
-	DedupTTL           time.Duration
-	ConfirmationTTL    time.Duration
-	RequireAtMention   bool
+	ListenAddr          string
+	BindingsFile        string
+	AdminsFile          string
+	AuditFile           string
+	BackendURL          string
+	BotToken            string
+	InternalRouteToken  string
+	WebhookToken        string
+	AdminToken          string
+	OwnerWxIDs          map[string]struct{}
+	BackendTimeout      time.Duration
+	DedupTTL            time.Duration
+	ConfirmationTTL     time.Duration
+	RequireAtMention    bool
+	NoticeEnabled       bool
+	NoticeToken         string
+	NoticeRobotURL      string
+	NoticeRobotToken    string
+	NoticeAllowedGroups []string
 }
 
 func Load() (Config, error) {
@@ -47,8 +52,21 @@ func Load() (Config, error) {
 		DedupTTL:           durationFromSeconds("DEDUP_TTL_SEC", 24*time.Hour),
 		ConfirmationTTL:    durationFromSeconds("CONFIRMATION_TTL_SEC", 5*time.Minute),
 		RequireAtMention:   boolOrDefault("REQUIRE_AT_MENTION", true),
+		NoticeEnabled:      boolOrDefault("PRODUCTION_NOTICE_ENABLED", false),
+		NoticeToken:        strings.TrimSpace(os.Getenv("PRODUCTION_NOTICE_TOKEN")),
+		NoticeRobotURL:     strings.TrimSpace(os.Getenv("PRODUCTION_NOTICE_ROBOT_URL")),
+		NoticeRobotToken:   strings.TrimSpace(os.Getenv("PRODUCTION_NOTICE_ROBOT_TOKEN")),
 	}
 
+	// Reuse is explicit: upgrading an existing inventory gateway must not enable sends.
+	if boolOrDefault("PRODUCTION_NOTICE_REUSE_EXISTING_AUTH", false) {
+		if cfg.NoticeToken == "" {
+			cfg.NoticeToken = cfg.BotToken
+		}
+		if cfg.NoticeRobotToken == "" {
+			cfg.NoticeRobotToken = cfg.InternalRouteToken
+		}
+	}
 	missing := make([]string, 0, 5)
 	for _, item := range []struct {
 		key   string
@@ -69,6 +87,9 @@ func Load() (Config, error) {
 	}
 	if len(cfg.OwnerWxIDs) == 0 {
 		return Config{}, errors.New("OWNER_WXIDS 必须至少包含一个固定所有者")
+	}
+	for id := range parseSet(os.Getenv("PRODUCTION_NOTICE_ALLOWED_GROUPS")) {
+		cfg.NoticeAllowedGroups = append(cfg.NoticeAllowedGroups, id)
 	}
 	if cfg.BackendTimeout <= 0 || cfg.DedupTTL <= 0 || cfg.ConfirmationTTL <= 0 {
 		return Config{}, errors.New("超时和去重 TTL 必须大于 0")

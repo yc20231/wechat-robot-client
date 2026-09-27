@@ -2,6 +2,30 @@ package config
 
 import "testing"
 
+func TestNoticeAuthReuseRequiresOptIn(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("OWNER_WXIDS", "owner")
+	t.Setenv("PRODUCTION_NOTICE_ENABLED", "false")
+	t.Setenv("PRODUCTION_NOTICE_TOKEN", "")
+	t.Setenv("PRODUCTION_NOTICE_ROBOT_TOKEN", "")
+	t.Setenv("PRODUCTION_NOTICE_REUSE_EXISTING_AUTH", "false")
+	cfg, err := Load()
+	if err != nil || cfg.NoticeToken != "" || cfg.NoticeRobotToken != "" || cfg.NoticeEnabled {
+		t.Fatal("must not implicitly enable notices or reuse tokens", err)
+	}
+	t.Setenv("PRODUCTION_NOTICE_REUSE_EXISTING_AUTH", "true")
+	cfg, err = Load()
+	if err != nil || cfg.NoticeToken != cfg.BotToken || cfg.NoticeRobotToken != cfg.InternalRouteToken || cfg.NoticeEnabled {
+		t.Fatal("reuse must resolve both tokens without enabling worker", err)
+	}
+	t.Setenv("PRODUCTION_NOTICE_TOKEN", "dedicated-backend")
+	t.Setenv("PRODUCTION_NOTICE_ROBOT_TOKEN", "dedicated-robot")
+	cfg, err = Load()
+	if err != nil || cfg.NoticeToken != "dedicated-backend" || cfg.NoticeRobotToken != "dedicated-robot" {
+		t.Fatal("dedicated tokens must take precedence", err)
+	}
+}
+
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("BACKEND_URL", "https://example.com")
